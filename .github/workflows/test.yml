@@ -53,10 +53,11 @@ jobs:
         docker run --rm -d --name test-frijolebot \
           -e DISCORD_BOT_TOKEN=test \
           -e DISCORD_GUILD_ID=test \
-          -e DISCORD_CHANNELS_TO_MONITOR=test \
+          -e DISCORD_CHANNEL_TEST1=test \
           -e BASEROW_API_TOKEN=test \
           -e BASEROW_API_URL=test \
           -e NODE_ENV=test \
+          -e HEALTH_CHECK_PORT=3000 \
           -p 3000:3000 \
           frijolebot-test
         
