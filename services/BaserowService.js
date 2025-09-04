@@ -229,6 +229,62 @@ class BaserowService {
     }
 
     /**
+     * Get all unread links for a user across all guilds (excluding their own posts)
+     * @param {string} username - Username to get unread links for
+     * @returns {Promise<Array>} Array of unread links from all guilds
+     */
+    async getUnreadLinksForUserAllGuilds(username) {
+        try {
+            // Get all links without guild filter
+            const response = await axios.get(`${this.apiUrl}/?user_field_names=true`, {
+                headers: { 'Authorization': `Token ${this.apiToken}` }
+            });
+
+            const allLinks = response.data.results;
+            
+            Logger.info(`Found ${allLinks.length} total links across all guilds`);
+            Logger.info(`Looking for unread links for user: ${username}`);
+            
+            // Debug: Log all links to see their structure
+            allLinks.forEach((link, index) => {
+                Logger.info(`Link ${index + 1}:`, {
+                    user: link.user,
+                    read: link.read,
+                    readType: typeof link.read,
+                    url: link.url,
+                    message_id: link.message_id,
+                    guild_id: link.guild_id
+                });
+            });
+            
+            // Filter for unread links not posted by the requesting user
+            const unreadLinks = allLinks.filter(link => {
+                const isNotOwnPost = link.user !== username;
+                const isUnread = link.read === false;
+                const hasUrl = !!link.url;
+                
+                Logger.info(`Link filtering:`, {
+                    user: link.user,
+                    username: username,
+                    isNotOwnPost: isNotOwnPost,
+                    read: link.read,
+                    isUnread: isUnread,
+                    hasUrl: hasUrl,
+                    passes: isNotOwnPost && isUnread && hasUrl
+                });
+                
+                return isNotOwnPost && isUnread && hasUrl;
+            });
+
+            Logger.info(`Filtered to ${unreadLinks.length} unread links for ${username} across all guilds`);
+            return unreadLinks;
+        } catch (error) {
+            Logger.error('Error fetching unread links from all guilds:', error.response?.data || error.message);
+            return [];
+        }
+    }
+
+    /**
      * Create a DM message mapping
      * @param {string} dmMessageId - Discord DM message ID
      * @param {string} emoji - Reaction emoji
