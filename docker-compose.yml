@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  discord-bot:
+    build: .
+    container_name: frijolebot
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./logs:/app/logs
+    environment:
+      - NODE_ENV=production
+    networks:
+      - bot-network
+    # Uncomment if you need to expose a port for health checks
+    # ports:
+    #   - "3000:3000"
+
+networks:
+  bot-network:
+    driver: bridge
+
+volumes:
+  logs:
