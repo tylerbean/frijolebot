@@ -53,6 +53,16 @@ spec:
             configMapKeyRef:
               name: frijolebot-config
               key: baserow-api-url
+        - name: BASEROW_LINKS_TABLE_ID
+          valueFrom:
+            configMapKeyRef:
+              name: frijolebot-config
+              key: baserow-links-table-id
+        - name: BASEROW_DM_MAPPING_TABLE_ID
+          valueFrom:
+            configMapKeyRef:
+              name: frijolebot-config
+              key: baserow-dm-mapping-table-id
         - name: HEALTH_CHECK_PORT
           value: "3000"
         - name: NODE_ENV
@@ -118,6 +128,8 @@ data:
   discord-channel-general: "YOUR_GENERAL_CHANNEL_ID"
   discord-channel-links: "YOUR_LINKS_CHANNEL_ID"
   baserow-api-url: "https://your-baserow-instance.com/api/database/table/123/"
+  baserow-links-table-id: "123"
+  baserow-dm-mapping-table-id: "43"
 ---
 apiVersion: v1
 kind: Secret

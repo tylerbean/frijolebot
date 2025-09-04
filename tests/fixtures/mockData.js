@@ -74,7 +74,9 @@ const mockConfig = {
   },
   baserow: {
     apiToken: 'test-baserow-token',
-    apiUrl: 'https://test-baserow.com/api/database/table/123/'
+    apiUrl: 'https://test-baserow.com/api/database/table/123/',
+    linksTableId: '123',
+    dmMappingTableId: '43'
   },
   app: {
     nodeEnv: 'test'

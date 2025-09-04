@@ -7,6 +7,8 @@ process.env.DISCORD_GUILD_ID = '123456789';
 process.env.DISCORD_CHANNELS_TO_MONITOR = '111111111,222222222';
 process.env.BASEROW_API_TOKEN = 'test-baserow-token';
 process.env.BASEROW_API_URL = 'https://test-baserow.com/api/database/table/123/';
+process.env.BASEROW_LINKS_TABLE_ID = '123';
+process.env.BASEROW_DM_MAPPING_TABLE_ID = '43';
 process.env.HEALTH_CHECK_PORT = '3001';
 
 // Mock console methods to reduce noise in tests

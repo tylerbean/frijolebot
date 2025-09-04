@@ -13,7 +13,9 @@ describe('BaserowService', () => {
     mockAxios = axios;
     baserowService = new BaserowService(
       mockConfig.baserow.apiToken,
-      mockConfig.baserow.apiUrl
+      mockConfig.baserow.apiUrl,
+      mockConfig.baserow.linksTableId,
+      mockConfig.baserow.dmMappingTableId
     );
     jest.clearAllMocks();
   });
@@ -21,7 +23,10 @@ describe('BaserowService', () => {
   describe('constructor', () => {
     it('should initialize with correct configuration', () => {
       expect(baserowService.apiToken).toBe(mockConfig.baserow.apiToken);
-      expect(baserowService.apiUrl).toBe(mockConfig.baserow.apiUrl);
+      expect(baserowService.linksTableId).toBe(mockConfig.baserow.linksTableId);
+      expect(baserowService.dmMappingTableId).toBe(mockConfig.baserow.dmMappingTableId);
+      expect(baserowService.linksApiUrl).toBe('https://test-baserow.com/api/database/table/123/');
+      expect(baserowService.dmMappingApiUrl).toBe('https://test-baserow.com/api/database/table/43/');
       expect(baserowService.headers).toEqual({
         'Authorization': `Token ${mockConfig.baserow.apiToken}`,
         'Content-Type': 'application/json'

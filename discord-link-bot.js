@@ -11,7 +11,12 @@ Logger.startup('Bot starting...');
 Logger.startup(`Monitoring ${config.discord.channelsToMonitor.length} channels`);
 
 // Initialize services
-const baserowService = new BaserowService(config.baserow.apiToken, config.baserow.apiUrl);
+const baserowService = new BaserowService(
+    config.baserow.apiToken, 
+    config.baserow.apiUrl, 
+    config.baserow.linksTableId, 
+    config.baserow.dmMappingTableId
+);
 
 // Create Discord client
 const client = new Client({

@@ -2,10 +2,12 @@ const axios = require('axios');
 const Logger = require('../utils/logger');
 
 class BaserowService {
-    constructor(apiToken, apiUrl, dmMappingTableId = 43) {
+    constructor(apiToken, apiUrl, linksTableId, dmMappingTableId) {
         this.apiToken = apiToken;
-        this.apiUrl = apiUrl;
+        this.linksApiUrl = apiUrl;
+        this.linksTableId = linksTableId;
         this.dmMappingTableId = dmMappingTableId;
+        this.linksApiUrl = apiUrl.replace(/table\/\d+/, `table/${linksTableId}`);
         this.dmMappingApiUrl = apiUrl.replace(/table\/\d+/, `table/${dmMappingTableId}`);
         this.headers = {
             'Authorization': `Token ${this.apiToken}`,
@@ -21,7 +23,7 @@ class BaserowService {
      */
     async findLinkByMessageId(messageId, guildId) {
         try {
-            const queryUrl = `${this.apiUrl}/?user_field_names=true&filters={"filter_type":"AND","filters":[{"field":"message_id","type":"equal","value":"${messageId}"},{"field":"guild_id","type":"equal","value":"${guildId}"}]}`;
+            const queryUrl = `${this.linksApiUrl}/?user_field_names=true&filters={"filter_type":"AND","filters":[{"field":"message_id","type":"equal","value":"${messageId}"},{"field":"guild_id","type":"equal","value":"${guildId}"}]}`;
             
             const response = await axios.get(queryUrl, {
                 headers: { 'Authorization': `Token ${this.apiToken}` }
@@ -42,7 +44,7 @@ class BaserowService {
      */
     async findLinkByMessageIdAllGuilds(messageId) {
         try {
-            const queryUrl = `${this.apiUrl}/?user_field_names=true&filters={"filter_type":"AND","filters":[{"field":"message_id","type":"equal","value":"${messageId}"}]}`;
+            const queryUrl = `${this.linksApiUrl}/?user_field_names=true&filters={"filter_type":"AND","filters":[{"field":"message_id","type":"equal","value":"${messageId}"}]}`;
             
             const response = await axios.get(queryUrl, {
                 headers: { 'Authorization': `Token ${this.apiToken}` }
@@ -80,7 +82,7 @@ class BaserowService {
 
             Logger.info('Storing link in Baserow:', linkData);
 
-            const response = await axios.post(`${this.apiUrl}/?user_field_names=true`, linkData, {
+            const response = await axios.post(`${this.linksApiUrl}/?user_field_names=true`, linkData, {
                 headers: this.headers
             });
 
@@ -107,7 +109,7 @@ class BaserowService {
                 return false;
             }
 
-            await axios.patch(`${this.apiUrl}/${link.id}/?user_field_names=true`, {
+            await axios.patch(`${this.linksApiUrl}/${link.id}/?user_field_names=true`, {
                 read: readStatus
             }, {
                 headers: this.headers
@@ -146,7 +148,7 @@ class BaserowService {
             if (link.user !== reactorUsername) {
                 Logger.success(`Reactor (${reactorUsername}) is different from original poster (${link.user}), updating read status`);
                 
-                await axios.patch(`${this.apiUrl}/${link.id}/?user_field_names=true`, {
+                await axios.patch(`${this.linksApiUrl}/${link.id}/?user_field_names=true`, {
                     read: readStatus
                 }, {
                     headers: this.headers
@@ -182,7 +184,7 @@ class BaserowService {
                 return false;
             }
             
-            await axios.delete(`${this.apiUrl}/${link.id}/?user_field_names=true`, {
+            await axios.delete(`${this.linksApiUrl}/${link.id}/?user_field_names=true`, {
                 headers: this.headers
             });
 
@@ -204,7 +206,7 @@ class BaserowService {
      */
     async getUnreadLinksForUser(username, guildId, userId, discordClient) {
         try {
-            const response = await axios.get(`${this.apiUrl}/?user_field_names=true&filters={"filter_type":"AND","filters":[{"field":"guild_id","type":"equal","value":"${guildId}"}]}`, {
+            const response = await axios.get(`${this.linksApiUrl}/?user_field_names=true&filters={"filter_type":"AND","filters":[{"field":"guild_id","type":"equal","value":"${guildId}"}]}`, {
                 headers: { 'Authorization': `Token ${this.apiToken}` }
             });
 
@@ -293,7 +295,7 @@ class BaserowService {
     async getUnreadLinksForUserAllGuilds(username, userId, discordClient) {
         try {
             // Get all links without guild filter
-            const response = await axios.get(`${this.apiUrl}/?user_field_names=true`, {
+            const response = await axios.get(`${this.linksApiUrl}/?user_field_names=true`, {
                 headers: { 'Authorization': `Token ${this.apiToken}` }
             });
 
@@ -555,7 +557,7 @@ class BaserowService {
         const startTime = Date.now();
         try {
             // Make a simple API call to test connectivity
-            const response = await axios.get(`${this.apiUrl}/?user_field_names=true&size=1`, {
+            const response = await axios.get(`${this.linksApiUrl}/?user_field_names=true&size=1`, {
                 headers: { 'Authorization': `Token ${this.apiToken}` },
                 timeout: 5000 // 5 second timeout
             });

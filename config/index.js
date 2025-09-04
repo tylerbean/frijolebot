@@ -5,7 +5,9 @@ const requiredEnvVars = [
     'DISCORD_BOT_TOKEN',
     'DISCORD_GUILD_ID',
     'BASEROW_API_TOKEN',
-    'BASEROW_API_URL'
+    'BASEROW_API_URL',
+    'BASEROW_LINKS_TABLE_ID',
+    'BASEROW_DM_MAPPING_TABLE_ID'
 ];
 
 const missingVars = requiredEnvVars.filter(varName => !process.env[varName]);
@@ -31,7 +33,9 @@ module.exports = {
     },
     baserow: {
         apiToken: process.env.BASEROW_API_TOKEN,
-        apiUrl: process.env.BASEROW_API_URL
+        apiUrl: process.env.BASEROW_API_URL,
+        linksTableId: process.env.BASEROW_LINKS_TABLE_ID,
+        dmMappingTableId: process.env.BASEROW_DM_MAPPING_TABLE_ID
     },
     app: {
         nodeEnv: process.env.NODE_ENV || 'development'
