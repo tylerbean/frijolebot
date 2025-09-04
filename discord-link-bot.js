@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes, Partials } = require('discord.js');
+const { Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes, Partials, MessageFlags } = require('discord.js');
 const config = require('./config');
 const BaserowService = require('./services/BaserowService');
 const MessageHandler = require('./handlers/messageHandler');
@@ -29,10 +29,10 @@ const client = new Client({
     ]
 });
 
-// Initialize handlers
+// Initialize handlers (CommandHandler needs client, so it's initialized later)
 const reactionHandler = new ReactionHandler(baserowService, config);
 const messageHandler = new MessageHandler(baserowService);
-const commandHandler = new CommandHandler(baserowService, reactionHandler, config);
+let commandHandler; // Will be initialized after client is ready
 
 
 
@@ -67,6 +67,9 @@ client.once('clientReady', async () => {
     Logger.success(`Bot logged in as ${client.user.tag}`);
     Logger.startup(`Monitoring ${config.discord.channelsToMonitor.length} channels in guild ${config.discord.guildId}`);
     
+    // Initialize CommandHandler with Discord client
+    commandHandler = new CommandHandler(baserowService, reactionHandler, config, client);
+    
     // Register slash commands
     await registerCommands();
     
@@ -86,6 +89,14 @@ client.on('interactionCreate', async interaction => {
     if (!interaction.isChatInputCommand()) return;
 
     if (interaction.commandName === 'unread') {
+        if (!commandHandler) {
+            Logger.error('CommandHandler not initialized yet');
+            await interaction.reply({
+                content: '❌ Bot is still starting up. Please try again in a moment.',
+                flags: MessageFlags.Ephemeral
+            });
+            return;
+        }
         await commandHandler.handleUnreadCommand(interaction);
     }
 });

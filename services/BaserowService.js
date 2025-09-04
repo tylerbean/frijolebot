@@ -229,11 +229,13 @@ class BaserowService {
     }
 
     /**
-     * Get all unread links for a user across all guilds (excluding their own posts)
+     * Get all unread links for a user across guilds they're members of (excluding their own posts)
      * @param {string} username - Username to get unread links for
-     * @returns {Promise<Array>} Array of unread links from all guilds
+     * @param {string} userId - Discord user ID to check server memberships
+     * @param {Object} discordClient - Discord client to check server memberships
+     * @returns {Promise<Array>} Array of unread links from accessible guilds
      */
-    async getUnreadLinksForUserAllGuilds(username) {
+    async getUnreadLinksForUserAllGuilds(username, userId, discordClient) {
         try {
             // Get all links without guild filter
             const response = await axios.get(`${this.apiUrl}/?user_field_names=true`, {
@@ -243,7 +245,24 @@ class BaserowService {
             const allLinks = response.data.results;
             
             Logger.info(`Found ${allLinks.length} total links across all guilds`);
-            Logger.info(`Looking for unread links for user: ${username}`);
+            Logger.info(`Looking for unread links for user: ${username} (${userId})`);
+            
+            // Get user's current server memberships
+            const userGuilds = new Set();
+            try {
+                for (const [guildId, guild] of discordClient.guilds.cache) {
+                    const member = await guild.members.fetch(userId).catch(() => null);
+                    if (member) {
+                        userGuilds.add(guildId);
+                        Logger.debug(`User ${username} is member of guild: ${guild.name} (${guildId})`);
+                    }
+                }
+            } catch (error) {
+                Logger.error('Error checking user guild memberships:', error);
+                return [];
+            }
+            
+            Logger.info(`User ${username} is member of ${userGuilds.size} guilds:`, Array.from(userGuilds));
             
             // Debug: Log all links to see their structure
             allLinks.forEach((link, index) => {
@@ -253,15 +272,17 @@ class BaserowService {
                     readType: typeof link.read,
                     url: link.url,
                     message_id: link.message_id,
-                    guild_id: link.guild_id
+                    guild_id: link.guild_id,
+                    userHasAccess: userGuilds.has(link.guild_id)
                 });
             });
             
-            // Filter for unread links not posted by the requesting user
+            // Filter for unread links not posted by the requesting user AND from servers they're members of
             const unreadLinks = allLinks.filter(link => {
                 const isNotOwnPost = link.user !== username;
                 const isUnread = link.read === false;
                 const hasUrl = !!link.url;
+                const hasGuildAccess = userGuilds.has(link.guild_id);
                 
                 Logger.info(`Link filtering:`, {
                     user: link.user,
@@ -270,16 +291,18 @@ class BaserowService {
                     read: link.read,
                     isUnread: isUnread,
                     hasUrl: hasUrl,
-                    passes: isNotOwnPost && isUnread && hasUrl
+                    hasGuildAccess: hasGuildAccess,
+                    guild_id: link.guild_id,
+                    passes: isNotOwnPost && isUnread && hasUrl && hasGuildAccess
                 });
                 
-                return isNotOwnPost && isUnread && hasUrl;
+                return isNotOwnPost && isUnread && hasUrl && hasGuildAccess;
             });
 
-            Logger.info(`Filtered to ${unreadLinks.length} unread links for ${username} across all guilds`);
+            Logger.info(`Filtered to ${unreadLinks.length} unread links for ${username} from accessible guilds`);
             return unreadLinks;
         } catch (error) {
-            Logger.error('Error fetching unread links from all guilds:', error.response?.data || error.message);
+            Logger.error('Error fetching unread links from accessible guilds:', error.response?.data || error.message);
             return [];
         }
     }

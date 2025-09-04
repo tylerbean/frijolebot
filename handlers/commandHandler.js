@@ -2,10 +2,11 @@ const { EmbedBuilder, MessageFlags } = require('discord.js');
 const Logger = require('../utils/logger');
 
 class CommandHandler {
-    constructor(baserowService, reactionHandler, config) {
+    constructor(baserowService, reactionHandler, config, discordClient) {
         this.baserowService = baserowService;
         this.reactionHandler = reactionHandler;
         this.config = config;
+        this.discordClient = discordClient;
     }
 
     async handleUnreadCommand(interaction) {
@@ -22,10 +23,10 @@ class CommandHandler {
                 guildName: interaction.guild?.name
             });
             
-            // Handle DM usage - show unread links from all servers
+            // Handle DM usage - show unread links from servers user is member of
             if (!guildId) {
-                Logger.info('Command used in DM - fetching unread links from all servers');
-                const unreadLinks = await this.baserowService.getUnreadLinksForUserAllGuilds(username);
+                Logger.info('Command used in DM - fetching unread links from accessible servers');
+                const unreadLinks = await this.baserowService.getUnreadLinksForUserAllGuilds(username, interaction.user.id, this.discordClient);
                 
                 if (unreadLinks.length === 0) {
                     await interaction.editReply({
