@@ -1,5 +1,9 @@
 # Discord Link Bot
 
+[![Docker Build](https://github.com/tylerbean/frijolebot/actions/workflows/docker-build.yml/badge.svg)](https://github.com/tylerbean/frijolebot/actions/workflows/docker-build.yml)
+[![Tests](https://github.com/tylerbean/frijolebot/actions/workflows/test.yml/badge.svg)](https://github.com/tylerbean/frijolebot/actions/workflows/test.yml)
+[![Security Scan](https://github.com/tylerbean/frijolebot/actions/workflows/security.yml/badge.svg)](https://github.com/tylerbean/frijolebot/actions/workflows/security.yml)
+
 A Discord bot that monitors specified channels for messages containing URLs and stores them in a Baserow database for link management and read status tracking.
 
 ## Features
@@ -86,6 +90,43 @@ docker-compose up -d
 docker build -t frijolebot .
 docker run -d --name frijolebot --env-file .env frijolebot
 ```
+
+## CI/CD with GitHub Actions
+
+The project includes comprehensive GitHub Actions workflows for automated testing, building, and deployment:
+
+### Automated Workflows
+
+- **🧪 Testing**: Unit tests, syntax checking, and Docker build testing on every PR
+- **🐳 Docker Build**: Multi-architecture Docker images with automatic tagging
+- **🔒 Security**: Weekly vulnerability scans and dependency audits
+- **📦 Releases**: Automatic GitHub releases with Docker images for tags
+
+### Features
+
+- **Multi-architecture builds** (linux/amd64, linux/arm64)
+- **Security scanning** with Trivy and npm audit
+- **Health check testing** for every build
+- **Automatic Docker Hub pushes** for main branch and releases
+- **Software Bill of Materials** (SBOM) generation
+
+See [`.github/workflows/README.md`](.github/workflows/README.md) for detailed setup instructions.
+
+### Quick Setup for Docker Hub Integration
+
+1. **Create Docker Hub Access Token**:
+   - Go to [Docker Hub](https://hub.docker.com/) → Account Settings → Security
+   - Create new access token with "Read, Write, Delete" permissions
+
+2. **Add GitHub Secrets**:
+   - Go to your GitHub repository → Settings → Secrets and variables → Actions
+   - Add secrets:
+     - `DOCKERHUB_USERNAME`: Your Docker Hub username
+     - `DOCKERHUB_TOKEN`: Your Docker Hub access token
+
+3. **Automatic Builds**:
+   - Push to `main` branch → Docker image built and pushed to Docker Hub
+   - Create a tag (e.g., `v1.0.0`) → GitHub release created with Docker image
 
 ## Docker Deployment
 

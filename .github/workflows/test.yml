@@ -1,0 +1,72 @@
+name: Test and Lint
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Run tests
+      run: npm run test:ci
+
+    - name: Check syntax
+      run: |
+        echo "Checking JavaScript syntax..."
+        node -c discord-link-bot.js
+        node -c config/index.js
+        node -c services/BaserowService.js
+        node -c services/HealthCheckService.js
+        node -c handlers/commandHandler.js
+        node -c handlers/messageHandler.js
+        node -c handlers/reactionHandler.js
+        node -c utils/logger.js
+        node -c utils/rateLimiter.js
+        echo "✅ All syntax checks passed!"
+
+    - name: Test Docker build
+      run: |
+        echo "Testing Docker build..."
+        docker build -t frijolebot-test .
+        echo "✅ Docker build successful!"
+
+    - name: Test Docker health check
+      run: |
+        echo "Testing Docker health check..."
+        # Start container in background
+        docker run --rm -d --name test-frijolebot \
+          -e DISCORD_BOT_TOKEN=test \
+          -e DISCORD_GUILD_ID=test \
+          -e DISCORD_CHANNELS_TO_MONITOR=test \
+          -e BASEROW_API_TOKEN=test \
+          -e BASEROW_API_URL=test \
+          -e NODE_ENV=test \
+          -p 3000:3000 \
+          frijolebot-test
+        
+        # Wait for container to start
+        sleep 15
+        
+        # Test health check endpoint
+        curl -f http://localhost:3000/health/live || (echo "❌ Health check failed" && exit 1)
+        echo "✅ Health check passed!"
+        
+        # Clean up
+        docker stop test-frijolebot
+        docker rmi frijolebot-test
