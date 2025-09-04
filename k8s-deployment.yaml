@@ -1,3 +1,5 @@
+# Discord Link Bot Kubernetes Deployment
+# This deployment uses the public Docker image: tylerjbean/frijolebot:latest
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -16,7 +18,7 @@ spec:
     spec:
       containers:
       - name: frijolebot
-        image: frijolebot:latest
+        image: tylerjbean/frijolebot:latest
         ports:
         - containerPort: 3000
           name: health
@@ -31,11 +33,16 @@ spec:
             configMapKeyRef:
               name: frijolebot-config
               key: discord-guild-id
-        - name: DISCORD_CHANNELS_TO_MONITOR
+        - name: DISCORD_CHANNEL_GENERAL
           valueFrom:
             configMapKeyRef:
               name: frijolebot-config
-              key: discord-channels
+              key: discord-channel-general
+        - name: DISCORD_CHANNEL_LINKS
+          valueFrom:
+            configMapKeyRef:
+              name: frijolebot-config
+              key: discord-channel-links
         - name: BASEROW_API_TOKEN
           valueFrom:
             secretKeyRef:
@@ -50,6 +57,12 @@ spec:
           value: "3000"
         - name: NODE_ENV
           value: "production"
+        - name: RATE_LIMIT_ENABLED
+          value: "true"
+        - name: RATE_LIMIT_WINDOW_MS
+          value: "60000"
+        - name: RATE_LIMIT_MAX_REQUESTS
+          value: "5"
         livenessProbe:
           httpGet:
             path: /health/live
@@ -102,7 +115,8 @@ metadata:
   name: frijolebot-config
 data:
   discord-guild-id: "YOUR_GUILD_ID"
-  discord-channels: "CHANNEL_ID_1,CHANNEL_ID_2"
+  discord-channel-general: "YOUR_GENERAL_CHANNEL_ID"
+  discord-channel-links: "YOUR_LINKS_CHANNEL_ID"
   baserow-api-url: "https://your-baserow-instance.com/api/database/table/123/"
 ---
 apiVersion: v1
