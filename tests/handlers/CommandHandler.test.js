@@ -40,6 +40,13 @@ describe('CommandHandler', () => {
     jest.clearAllMocks();
   });
 
+  afterEach(() => {
+    // Clean up rate limiter interval to prevent Jest from hanging
+    if (commandHandler && typeof commandHandler.destroy === 'function') {
+      commandHandler.destroy();
+    }
+  });
+
   describe('constructor', () => {
     it('should initialize with correct dependencies', () => {
       expect(commandHandler.baserowService).toBe(mockBaserowService);

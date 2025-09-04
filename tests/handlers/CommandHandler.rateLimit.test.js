@@ -65,6 +65,13 @@ describe('CommandHandler - Rate Limiting', () => {
     jest.clearAllMocks();
   });
 
+  afterEach(() => {
+    // Clean up rate limiter interval to prevent Jest from hanging
+    if (commandHandler && typeof commandHandler.destroy === 'function') {
+      commandHandler.destroy();
+    }
+  });
+
   describe('constructor with rate limiting enabled', () => {
     it('should initialize rate limiter when enabled', () => {
       expect(RateLimiter).toHaveBeenCalledWith({
