@@ -11,11 +11,24 @@ services:
       - ./logs:/app/logs
     environment:
       - NODE_ENV=production
+      # Health check configuration
+      - HEALTH_CHECK_PORT=3000
+      # Rate limiting configuration (optional overrides)
+      # - RATE_LIMIT_ENABLED=true
+      # - RATE_LIMIT_WINDOW_MS=60000
+      # - RATE_LIMIT_MAX_REQUESTS=5
+      # - RATE_LIMIT_CLEANUP_INTERVAL=300000
+    ports:
+      # Expose health check port for monitoring
+      - "3000:3000"
     networks:
       - bot-network
-    # Uncomment if you need to expose a port for health checks
-    # ports:
-    #   - "3000:3000"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/health/live"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
 networks:
   bot-network:

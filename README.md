@@ -44,14 +44,23 @@ Create a `.env` file with the following variables:
 # Discord Bot Configuration
 DISCORD_BOT_TOKEN=your_bot_token_here
 DISCORD_GUILD_ID=your_guild_id_here
+DISCORD_CHANNELS_TO_MONITOR=channel_id_1,channel_id_2,channel_id_3
 
 # Baserow API Configuration
 BASEROW_API_TOKEN=your_baserow_api_token_here
-BASEROW_API_URL=https://your-baserow-instance.com/api/database/rows/table/your_table_id
+BASEROW_API_URL=https://your-baserow-instance.com/api/database/table/123/
 
-# Channel IDs to monitor (add more as needed)
-DISCORD_CHANNEL_SHARES_FOOD=your_channel_id_here
-DISCORD_CHANNEL_ANOTHER_CHANNEL=your_channel_id_here
+# Health Check Configuration
+HEALTH_CHECK_PORT=3000
+
+# Rate Limiting Configuration
+RATE_LIMIT_ENABLED=true
+RATE_LIMIT_WINDOW_MS=60000
+RATE_LIMIT_MAX_REQUESTS=5
+RATE_LIMIT_CLEANUP_INTERVAL=300000
+
+# Application Configuration
+NODE_ENV=production
 ```
 
 ### 4. Add Bot to Server
@@ -69,6 +78,48 @@ npm start
 
 # Development (with auto-restart)
 npm run dev
+
+# Docker
+docker-compose up -d
+
+# Docker (manual build)
+docker build -t frijolebot .
+docker run -d --name frijolebot --env-file .env frijolebot
+```
+
+## Docker Deployment
+
+The bot includes Docker support for easy deployment:
+
+### Docker Compose (Recommended)
+
+```bash
+# Start the bot
+docker-compose up -d
+
+# View logs
+docker-compose logs -f
+
+# Stop the bot
+docker-compose down
+```
+
+### Docker Features
+
+- **Health Checks**: Built-in health check endpoints at `/health/live` and `/health/ready`
+- **Rate Limiting**: Configurable rate limiting for slash commands
+- **Security**: Runs as non-root user
+- **Monitoring**: Exposes port 3000 for health check monitoring
+- **Logging**: Logs directory mounted for persistence
+
+### Docker Environment Variables
+
+All environment variables from the `.env` file are automatically loaded. You can also override them in `docker-compose.yml`:
+
+```yaml
+environment:
+  - RATE_LIMIT_MAX_REQUESTS=10
+  - HEALTH_CHECK_PORT=3000
 ```
 
 ## Adding More Channels

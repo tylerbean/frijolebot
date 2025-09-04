@@ -7,11 +7,15 @@ WORKDIR /app
 # Copy package files first for better caching
 COPY package*.json ./
 
-# Install dependencies
+# Install dependencies (production only for smaller image)
 RUN npm ci --only=production && npm cache clean --force
 
-# Copy application code
-COPY . .
+# Copy application code (excluding test files and dev dependencies)
+COPY config/ ./config/
+COPY services/ ./services/
+COPY handlers/ ./handlers/
+COPY utils/ ./utils/
+COPY discord-link-bot.js ./
 
 # Create non-root user for security
 RUN addgroup -g 1001 -S nodejs && \
@@ -21,12 +25,12 @@ RUN addgroup -g 1001 -S nodejs && \
 RUN chown -R botuser:nodejs /app
 USER botuser
 
-# Expose port (not strictly needed for Discord bot but good practice)
+# Expose health check port
 EXPOSE 3000
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD node -e "console.log('Bot is running')" || exit 1
+# Health check using the built-in health check endpoint
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD wget --no-verbose --tries=1 --spider http://localhost:3000/health/live || exit 1
 
 # Start the bot
 CMD ["npm", "start"]
