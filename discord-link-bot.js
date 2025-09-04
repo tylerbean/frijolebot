@@ -1,15 +1,12 @@
 require('dotenv').config();
 const { Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes, EmbedBuilder, MessageFlags, Partials } = require('discord.js');
-const axios = require('axios');
+const BaserowService = require('./services/BaserowService');
 
 // Load environment variables
 const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
 const DISCORD_GUILD_ID = process.env.DISCORD_GUILD_ID;
-const N8N_MESSAGES_WEBHOOK_URL = process.env.N8N_MESSAGES_WEBHOOK_URL;
-const N8N_REACTIONS_WEBHOOK_URL = process.env.N8N_REACTIONS_WEBHOOK_URL;
-const N8N_REACTIONS_REMOVE_WEBHOOK_URL = process.env.N8N_REACTIONS_REMOVE_WEBHOOK_URL || 'https://n8n.frijole.lol/webhook/discord-reactions-remove';
-const BASEROW_API_TOKEN = process.env.BASEROW_API_TOKEN || '3eFKYhKYnOdCJNYKGzGJKNlQGqjFqGGG';
-const BASEROW_API_URL = process.env.BASEROW_API_URL || 'https://baserow.frijole.lol/api/database/rows/table/42';
+const BASEROW_API_TOKEN = process.env.BASEROW_API_TOKEN;
+const BASEROW_API_URL = process.env.BASEROW_API_URL;
 
 // Get all channel IDs from environment variables
 const channelIds = Object.keys(process.env)
@@ -19,12 +16,9 @@ const channelIds = Object.keys(process.env)
 
 console.log('Bot starting...');
 console.log('Monitoring channels:', channelIds);
-console.log('Messages webhook:', N8N_MESSAGES_WEBHOOK_URL);
-console.log('Reactions webhook:', N8N_REACTIONS_WEBHOOK_URL);
-console.log('Reactions remove webhook:', N8N_REACTIONS_REMOVE_WEBHOOK_URL);
 
 // Validate required environment variables
-if (!DISCORD_BOT_TOKEN || !DISCORD_GUILD_ID || !N8N_MESSAGES_WEBHOOK_URL || !N8N_REACTIONS_WEBHOOK_URL || !N8N_REACTIONS_REMOVE_WEBHOOK_URL) {
+if (!DISCORD_BOT_TOKEN || !DISCORD_GUILD_ID || !BASEROW_API_TOKEN || !BASEROW_API_URL) {
   console.error('Missing required environment variables. Please check your .env file.');
   process.exit(1);
 }
@@ -33,11 +27,11 @@ if (!DISCORD_BOT_TOKEN || !DISCORD_GUILD_ID || !N8N_MESSAGES_WEBHOOK_URL || !N8N
 const config = {
     token: DISCORD_BOT_TOKEN,
     guildId: DISCORD_GUILD_ID, // Frijoleville server ID
-    channelsToMonitor: channelIds,
-    n8nMessagesWebhookUrl: N8N_MESSAGES_WEBHOOK_URL,
-    n8nReactionsWebhookUrl: N8N_REACTIONS_WEBHOOK_URL,
-    n8nReactionsRemoveWebhookUrl: N8N_REACTIONS_REMOVE_WEBHOOK_URL
+    channelsToMonitor: channelIds
 };
+
+// Initialize services
+const baserowService = new BaserowService(BASEROW_API_TOKEN, BASEROW_API_URL);
 
 // Create Discord client
 const client = new Client({
@@ -92,9 +86,6 @@ async function registerCommands() {
 client.once('clientReady', async () => {
     console.log(`✅ Bot logged in as ${client.user.tag}`);
     console.log(`📡 Monitoring ${config.channelsToMonitor.length} channels in guild ${config.guildId}`);
-    console.log(`🔗 Messages webhook URL: ${config.n8nMessagesWebhookUrl}`);
-    console.log(`🔗 Reactions webhook URL: ${config.n8nReactionsWebhookUrl}`);
-    console.log(`🔗 Reactions remove webhook URL: ${config.n8nReactionsRemoveWebhookUrl}`);
     
     // Register slash commands
     await registerCommands();
@@ -119,30 +110,7 @@ client.on('interactionCreate', async interaction => {
     }
 });
 
-// Function to get unread links for a user
-async function getUnreadLinksForUser(username) {
-    try {
-        const response = await axios.get(`${BASEROW_API_URL}/?user_field_names=true`, {
-            headers: {
-                'Authorization': `Token ${BASEROW_API_TOKEN}`
-            }
-        });
 
-        const allLinks = response.data.results;
-        
-        // Filter for unread links not posted by the requesting user
-        const unreadLinks = allLinks.filter(link => 
-            link.user !== username && 
-            link.read === false &&
-            link.url // Make sure URL exists
-        );
-
-        return unreadLinks;
-    } catch (error) {
-        console.error('Error fetching unread links:', error);
-        return [];
-    }
-}
 
 // Handle unread command
 async function handleUnreadCommand(interaction) {
@@ -150,7 +118,7 @@ async function handleUnreadCommand(interaction) {
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
         
         const username = interaction.user.username;
-        const unreadLinks = await getUnreadLinksForUser(username);
+        const unreadLinks = await baserowService.getUnreadLinksForUser(username);
         
         if (unreadLinks.length === 0) {
             await interaction.editReply({
@@ -239,263 +207,17 @@ async function handleUnreadCommand(interaction) {
     }
 }
 
-// Function to mark link as read in Baserow
-async function markLinkAsRead(messageId) {
-    try {
-        // First, find the link by message_id
-        const response = await axios.get(`${BASEROW_API_URL}/?user_field_names=true&filters={"filter_type":"AND","filters":[{"field":"message_id","type":"equal","value":"${messageId}"}]}`, {
-            headers: {
-                'Authorization': `Token ${BASEROW_API_TOKEN}`
-            }
-        });
 
-        const links = response.data.results;
-        if (links.length === 0) {
-            console.log('No link found with message ID:', messageId);
-            return false;
-        }
 
-        const link = links[0];
-        
-        // Update the read status
-        await axios.patch(`${BASEROW_API_URL}/${link.id}/?user_field_names=true`, {
-            read: true
-        }, {
-            headers: {
-                'Authorization': `Token ${BASEROW_API_TOKEN}`,
-                'Content-Type': 'application/json'
-            }
-        });
 
-        console.log(`Marked link as read: ${link.url}`);
-        return true;
-    } catch (error) {
-        console.error('Error marking link as read:', error);
-        return false;
-    }
-}
 
-// Function to mark link as unread in Baserow
-async function markLinkAsUnread(messageId) {
-    try {
-        // First, find the link by message_id
-        const response = await axios.get(`${BASEROW_API_URL}/?user_field_names=true&filters={"filter_type":"AND","filters":[{"field":"message_id","type":"equal","value":"${messageId}"}]}`, {
-            headers: {
-                'Authorization': `Token ${BASEROW_API_TOKEN}`
-            }
-        });
 
-        const links = response.data.results;
-        if (links.length === 0) {
-            console.log('No link found with message ID:', messageId);
-            return false;
-        }
 
-        const link = links[0];
-        
-        // Update the read status
-        await axios.patch(`${BASEROW_API_URL}/${link.id}/?user_field_names=true`, {
-            read: false
-        }, {
-            headers: {
-                'Authorization': `Token ${BASEROW_API_TOKEN}`,
-                'Content-Type': 'application/json'
-            }
-        });
 
-        console.log(`Marked link as unread: ${link.url}`);
-        return true;
-    } catch (error) {
-        console.error('Error marking link as unread:', error);
-        return false;
-    }
-}
 
-// Function to mark link as read in Baserow from reaction
-async function markLinkAsReadFromReaction(messageId, reactorUsername) {
-    try {
-        console.log(`🔍 Looking for link with message_id: ${messageId}`);
-        console.log(`🔍 Reactor username: ${reactorUsername}`);
-        
-        // First, find the link by message_id
-        const queryUrl = `${BASEROW_API_URL}/?user_field_names=true&filters={"filter_type":"AND","filters":[{"field":"message_id","type":"equal","value":"${messageId}"}]}`;
-        console.log(`🔍 Query URL: ${queryUrl}`);
-        
-        const response = await axios.get(queryUrl, {
-            headers: {
-                'Authorization': `Token ${BASEROW_API_TOKEN}`
-            }
-        });
 
-        console.log(`🔍 Query response:`, response.data);
-        
-        const links = response.data.results;
-        if (links.length === 0) {
-            console.log('❌ No link found with message ID:', messageId);
-            return false;
-        }
 
-        const link = links[0];
-        console.log(`🔍 Found link:`, link);
-        
-        // Check if reactor is different from original poster
-        if (link.user !== reactorUsername) {
-            console.log(`✅ Reactor (${reactorUsername}) is different from original poster (${link.user}), updating read status`);
-            
-            const updateUrl = `${BASEROW_API_URL}/${link.id}/?user_field_names=true`;
-            console.log(`🔍 Update URL: ${updateUrl}`);
-            
-            // Update the read status to TRUE (mark as read)
-            await axios.patch(updateUrl, {
-                read: true
-            }, {
-                headers: {
-                    'Authorization': `Token ${BASEROW_API_TOKEN}`,
-                    'Content-Type': 'application/json'
-                }
-            });
 
-            console.log(`✅ Marked link as read: ${link.url}`);
-            return true;
-        }
-
-        console.log(`⚠️ Reactor is the same as the original poster, skipping mark as read`);
-        return false;
-    } catch (error) {
-        console.error('❌ Error marking link as read from reaction:', error.response?.data || error.message);
-        if (error.response) {
-            console.error('❌ Response status:', error.response.status);
-            console.error('❌ Response headers:', error.response.headers);
-        }
-        return false;
-    }
-}
-
-// Function to mark link as unread in Baserow from reaction
-async function markLinkAsUnreadFromReaction(messageId, reactorUsername) {
-    try {
-        console.log(`🔍 Looking for link with message_id: ${messageId}`);
-        console.log(`🔍 Reactor username: ${reactorUsername}`);
-        
-        // First, find the link by message_id
-        const queryUrl = `${BASEROW_API_URL}/?user_field_names=true&filters={"filter_type":"AND","filters":[{"field":"message_id","type":"equal","value":"${messageId}"}]}`;
-        console.log(`🔍 Query URL: ${queryUrl}`);
-        
-        const response = await axios.get(queryUrl, {
-            headers: {
-                'Authorization': `Token ${BASEROW_API_TOKEN}`
-            }
-        });
-
-        console.log(`🔍 Query response:`, response.data);
-        
-        const links = response.data.results;
-        if (links.length === 0) {
-            console.log('❌ No link found with message ID:', messageId);
-            return false;
-        }
-
-        const link = links[0];
-        console.log(`🔍 Found link:`, link);
-        
-        // Check if reactor is different from original poster
-        if (link.user !== reactorUsername) {
-            console.log(`✅ Reactor (${reactorUsername}) is different from original poster (${link.user}), updating read status`);
-            
-            const updateUrl = `${BASEROW_API_URL}/${link.id}/?user_field_names=true`;
-            console.log(`🔍 Update URL: ${updateUrl}`);
-            
-            // Update the read status to FALSE (mark as unread)
-            await axios.patch(updateUrl, {
-                read: false
-            }, {
-                headers: {
-                    'Authorization': `Token ${BASEROW_API_TOKEN}`,
-                    'Content-Type': 'application/json'
-                }
-            });
-
-            console.log(`✅ Marked link as unread: ${link.url}`);
-            return true;
-        }
-
-        console.log(`⚠️ Reactor is the same as the original poster, skipping mark as read`);
-        return false;
-    } catch (error) {
-        console.error('❌ Error marking link as unread from reaction:', error.response?.data || error.message);
-        if (error.response) {
-            console.error('❌ Response status:', error.response.status);
-            console.error('❌ Response headers:', error.response.headers);
-        }
-        return false;
-    }
-}
-
-// Function to store link in Baserow
-async function storeLinkInBaserow(messageData, url) {
-    try {
-        const linkData = {
-            url: url,
-            content: messageData.content,
-            channel_id: messageData.channel.id,
-            channel_name: messageData.channel.name,
-            user: messageData.author.username,
-            user_id: messageData.author.id,
-            message_id: messageData.id,
-            timestamp: messageData.createdAt.toISOString(),
-            read: false
-        };
-
-        console.log('Storing link in Baserow:', linkData);
-
-        const response = await axios.post(`${BASEROW_API_URL}/?user_field_names=true`, linkData, {
-            headers: {
-                'Authorization': `Token ${BASEROW_API_TOKEN}`,
-                'Content-Type': 'application/json'
-            }
-        });
-
-        console.log('Link stored successfully:', response.data);
-        return response.data;
-    } catch (error) {
-        console.error('Error storing link in Baserow:', error.response?.data || error.message);
-        return null;
-    }
-}
-
-// Function to delete message from Baserow
-async function deleteMessageFromBaserow(messageId) {
-    try {
-        // First, find the link by message_id
-        const response = await axios.get(`${BASEROW_API_URL}/?user_field_names=true&filters={"filter_type":"AND","filters":[{"field":"message_id","type":"equal","value":"${messageId}"}]}`, {
-            headers: {
-                'Authorization': `Token ${BASEROW_API_TOKEN}`
-            }
-        });
-
-        const links = response.data.results;
-        if (links.length === 0) {
-            console.log('No link found with message ID:', messageId);
-            return false;
-        }
-
-        const link = links[0];
-        
-        // Delete the link
-        await axios.delete(`${BASEROW_API_URL}/${link.id}/?user_field_names=true`, {
-            headers: {
-                'Authorization': `Token ${BASEROW_API_TOKEN}`,
-                'Content-Type': 'application/json'
-            }
-        });
-
-        console.log(`Deleted link from Baserow: ${link.url}`);
-        return true;
-    } catch (error) {
-        console.error('Error deleting link from Baserow:', error);
-        return false;
-    }
-}
 
 // Function to check if user is admin
 async function isUserAdmin(member) {
@@ -552,25 +274,9 @@ client.on('messageCreate', async (message) => {
         
         console.log(`🔗 Found ${urls.length} URL(s) in #${message.channel.name} from ${message.author.username}`);
         
-        // Prepare payload for n8n
-        const payload = {
-            content: message.content,
-            channel_id: message.channel.id,
-            channel_name: message.channel.name,
-            guild_id: message.guild.id,
-            author: {
-                username: message.author.username,
-                id: message.author.id,
-                displayName: message.member?.displayName || message.author.username
-            },
-            id: message.id,
-            timestamp: message.createdAt.toISOString(),
-            urls: urls
-        };
-        
         // Store link in Baserow
         for (const url of urls) {
-            await storeLinkInBaserow(message, url);
+            await baserowService.storeLink(message, url);
         }
         
         // Add green checkmark reaction to the message
@@ -635,7 +341,7 @@ client.on('messageReactionAdd', async (reaction, user) => {
                         console.log(`🔍 Bulk marking ${messageIds.length} links as read`);
                         let successCount = 0;
                         for (const id of messageIds) {
-                            const success = await markLinkAsRead(id);
+                            const success = await baserowService.updateReadStatus(id, true);
                             if (success) successCount++;
                         }
                         console.log(`✅ Marked ${successCount}/${messageIds.length} links as read via bulk action`);
@@ -643,7 +349,7 @@ client.on('messageReactionAdd', async (reaction, user) => {
                 } else {
                     // Handle individual numbered reactions
                     console.log(`🔍 Attempting to mark single link as read: ${messageId}`);
-                    const success = await markLinkAsRead(messageId);
+                    const success = await baserowService.updateReadStatus(messageId, true);
                     if (success) {
                         console.log(`✅ Marked link as read via DM reaction: ${messageId}`);
                     } else {
@@ -668,16 +374,34 @@ client.on('messageReactionAdd', async (reaction, user) => {
             const member = await reaction.message.guild.members.fetch(user.id);
             const hasAdminPerms = await isUserAdmin(member);
             
+            // Check if user is the original poster
+            const isOriginalPoster = reaction.message.author.id === user.id;
+            
+            console.log(`🔍 Deletion permission check:`);
+            console.log(`   - User: ${user.username} (${user.id})`);
+            console.log(`   - Message author: ${reaction.message.author.username} (${reaction.message.author.id})`);
+            console.log(`   - Is admin: ${hasAdminPerms}`);
+            console.log(`   - Is original poster: ${isOriginalPoster}`);
+            
             if (hasAdminPerms) {
-                console.log(`✅ User ${user.username} has admin permissions, proceeding with deletion`);
-                
+                console.log(`✅ Admin ${user.username} can delete any message, proceeding with deletion`);
+            } else if (isOriginalPoster) {
+                console.log(`✅ Original poster ${user.username} can delete their own message, proceeding with deletion`);
+            } else {
+                console.log(`❌ User ${user.username} cannot delete message by ${reaction.message.author.username} (not admin, not original poster)`);
+                return;
+            }
+            
+            if (hasAdminPerms || isOriginalPoster) {
                 try {
                     // Delete from Baserow first
-                    const baserowDeleted = await deleteMessageFromBaserow(reaction.message.id);
+                    const baserowDeleted = await baserowService.deleteLink(reaction.message.id);
                     
                     // Delete the Discord message
                     await reaction.message.delete();
-                    console.log(`🗑️ Deleted Discord message ${reaction.message.id} by admin ${user.username}`);
+                    
+                    const deletionType = hasAdminPerms ? 'admin' : 'self';
+                    console.log(`🗑️ Deleted Discord message ${reaction.message.id} by ${deletionType} ${user.username}`);
                     
                     if (baserowDeleted) {
                         console.log(`✅ Successfully deleted message and Baserow entry`);
@@ -688,8 +412,6 @@ client.on('messageReactionAdd', async (reaction, user) => {
                 } catch (error) {
                     console.error(`❌ Error deleting message: ${error.message}`);
                 }
-            } else {
-                console.log(`❌ User ${user.username} does not have admin permissions for deletion`);
             }
             return;
         }
@@ -699,7 +421,51 @@ client.on('messageReactionAdd', async (reaction, user) => {
         console.log(`Channel reaction: ${reaction.emoji.name} by ${user.username} on message ${reaction.message.id}`);
 
         // Mark link as read in Baserow if reactor is different from original poster
-        await markLinkAsReadFromReaction(reaction.message.id, user.username);
+        await baserowService.updateReadStatusFromReaction(reaction.message.id, user.username, true);
+        
+        // Handle DM reaction removals (for /unread command responses)
+        if (!reaction.message.guild) {
+            console.log(`🔍 DM reaction removal detected: ${reaction.emoji.name} by ${user.username}`);
+            
+            const key = `${reaction.message.id}-${reaction.emoji.name}`;
+            if (dmMessageMap.has(key)) {
+                const messageId = dmMessageMap.get(key);
+                console.log(`Found mapping for DM reaction removal: ${key} -> ${messageId}`);
+                
+                if (reaction.emoji.name === '✅') {
+                    // Bulk mark all links as unread and remove all other reactions
+                    const messageIds = dmMessageMap.get(key);
+                    if (Array.isArray(messageIds)) {
+                        console.log(`Bulk marking ${messageIds.length} links as unread`);
+                        for (const id of messageIds) {
+                            await baserowService.updateReadStatus(id, false);
+                        }
+                    } else {
+                        await baserowService.updateReadStatus(messageIds, false);
+                    }
+                    
+                    // Remove all other reactions from the DM message
+                    try {
+                        const dmMessage = reaction.message;
+                        for (const [emoji, messageReaction] of dmMessage.reactions.cache) {
+                            if (emoji !== '✅') {
+                                await messageReaction.users.remove(client.user.id);
+                                console.log(`Removed ${emoji} reaction from DM`);
+                            }
+                        }
+                    } catch (error) {
+                        console.error('Error removing other reactions:', error);
+                    }
+                } else {
+                    // Mark individual link as unread
+                    const success = await baserowService.updateReadStatus(messageId, false);
+                    if (success) {
+                        console.log(`Successfully marked link as unread for message ${messageId}`);
+                    }
+                }
+            }
+            return;
+        }
         
     } catch (error) {
         console.error('Error handling reaction:', error.message);
@@ -737,51 +503,7 @@ client.on('messageReactionRemove', async (reaction, user) => {
         console.log(`Reaction removed: ${reaction.emoji.name} by ${user.username} on message ${reaction.message.id}`);
 
         // Mark link as unread in Baserow if reactor is different from original poster
-        await markLinkAsUnreadFromReaction(reaction.message.id, user.username);
-        
-        // Handle DM reaction removals (for /unread command responses)
-        if (!reaction.message.guild) {
-            console.log(`🔍 DM reaction removal detected: ${reaction.emoji.name} by ${user.username}`);
-            
-            const key = `${reaction.message.id}-${reaction.emoji.name}`;
-            if (dmMessageMap.has(key)) {
-                const messageId = dmMessageMap.get(key);
-                console.log(`Found mapping for DM reaction removal: ${key} -> ${messageId}`);
-                
-                if (reaction.emoji.name === '✅') {
-                    // Bulk mark all links as unread and remove all other reactions
-                    const messageIds = dmMessageMap.get(key);
-                    if (Array.isArray(messageIds)) {
-                        console.log(`Bulk marking ${messageIds.length} links as unread`);
-                        for (const id of messageIds) {
-                            await markLinkAsUnread(id);
-                        }
-                    } else {
-                        await markLinkAsUnread(messageIds);
-                    }
-                    
-                    // Remove all other reactions from the DM message
-                    try {
-                        const dmMessage = reaction.message;
-                        for (const [emoji, messageReaction] of dmMessage.reactions.cache) {
-                            if (emoji !== '✅') {
-                                await messageReaction.users.remove(client.user.id);
-                                console.log(`Removed ${emoji} reaction from DM`);
-                            }
-                        }
-                    } catch (error) {
-                        console.error('Error removing other reactions:', error);
-                    }
-                } else {
-                    // Mark individual link as unread
-                    const success = await markLinkAsUnread(messageId);
-                    if (success) {
-                        console.log(`Successfully marked link as unread for message ${messageId}`);
-                    }
-                }
-            }
-            return;
-        }
+        await baserowService.updateReadStatusFromReaction(reaction.message.id, user.username, false);
         
     } catch (error) {
         console.error('Error handling reaction removal:', error.message);

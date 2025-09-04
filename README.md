@@ -1,12 +1,12 @@
 # Discord Link Bot
 
-A Discord bot that monitors specified channels for messages containing URLs and forwards them to an n8n webhook for processing.
+A Discord bot that monitors specified channels for messages containing URLs and stores them in a Baserow database for link management and read status tracking.
 
 ## Features
 
 - **Multi-channel monitoring**: Configure multiple channels to monitor within a single Discord server
 - **URL detection**: Automatically detects HTTP/HTTPS URLs in messages
-- **n8n integration**: Sends detected links to n8n webhook for further processing
+- **Database storage**: Stores detected links in Baserow database with metadata
 - **Configurable**: Easy setup via environment variables
 - **Error handling**: Robust error handling and logging
 
@@ -33,17 +33,21 @@ npm install
 
 ### 3. Configure Environment Variables
 
-Copy `.env.example` to `.env` and fill in your values:
+Create a `.env` file with the following variables:
 
 ```bash
-cp .env.example .env
-```
+# Discord Bot Configuration
+DISCORD_BOT_TOKEN=your_bot_token_here
+DISCORD_GUILD_ID=your_guild_id_here
 
-Edit `.env`:
-- `DISCORD_BOT_TOKEN`: Your bot token from Discord Developer Portal
-- `DISCORD_GUILD_ID`: Your Discord server ID (Frijoleville: 611026701299875853)
-- `DISCORD_CHANNEL_*`: Channel IDs to monitor (uncomment and add more as needed)
-- `N8N_WEBHOOK_URL`: Your n8n webhook endpoint
+# Baserow API Configuration
+BASEROW_API_TOKEN=your_baserow_api_token_here
+BASEROW_API_URL=https://your-baserow-instance.com/api/database/rows/table/your_table_id
+
+# Channel IDs to monitor (add more as needed)
+DISCORD_CHANNEL_SHARES_FOOD=your_channel_id_here
+DISCORD_CHANNEL_ANOTHER_CHANNEL=your_channel_id_here
+```
 
 ### 4. Add Bot to Server
 
@@ -80,24 +84,21 @@ To monitor additional channels:
    ].filter(Boolean)
    ```
 
-## Payload Structure
+## Data Storage
 
-The bot sends this payload to the n8n webhook:
+The bot stores the following data in Baserow for each detected URL:
 
 ```json
 {
+  "url": "https://example.com",
   "content": "message content with https://example.com",
   "channel_id": "1409952645346758676",
   "channel_name": "shares-food",
-  "guild_id": "611026701299875853",
-  "author": {
-    "username": "username",
-    "id": "user_id",
-    "displayName": "Display Name"
-  },
-  "id": "message_id",
+  "user": "username",
+  "user_id": "user_id",
+  "message_id": "message_id",
   "timestamp": "2025-09-03T20:45:00.000Z",
-  "urls": ["https://example.com"]
+  "read": false
 }
 ```
 
@@ -105,5 +106,5 @@ The bot sends this payload to the n8n webhook:
 
 - **Bot not responding**: Check bot token and permissions
 - **Channel not monitored**: Verify channel ID in environment variables
-- **n8n not receiving**: Check webhook URL and n8n workflow status
+- **Database errors**: Check Baserow API token and URL configuration
 - **Missing messages**: Ensure bot has MESSAGE_CONTENT intent enabled
