@@ -128,6 +128,18 @@ See [`.github/workflows/README.md`](.github/workflows/README.md) for detailed se
    - Push to `main` branch → Docker image built and pushed to Docker Hub
    - Create a tag (e.g., `v1.0.0`) → GitHub release created with Docker image
 
+### Helper Scripts
+
+Use the included scripts to set up and test Docker Hub integration:
+
+```bash
+# Setup guide for Docker Hub integration
+./scripts/setup-dockerhub.sh
+
+# Test Docker build and health checks locally
+./scripts/test-dockerhub.sh
+```
+
 ## Docker Deployment
 
 The bot includes Docker support for easy deployment:
