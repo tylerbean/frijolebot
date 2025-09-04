@@ -38,6 +38,20 @@ This directory contains GitHub Actions workflows for automated CI/CD processes.
 - Docker build testing
 - Health check endpoint testing
 
+### 3. `security.yml` - Security Scanning
+
+**Triggers:**
+- Push to `main` or `develop` branches
+- Pull requests to `main`
+- Daily schedule (2 AM UTC)
+
+**Features:**
+- Trivy vulnerability scanner (filesystem scan)
+- GitHub CodeQL analysis (JavaScript)
+- npm audit for dependency vulnerabilities
+- SARIF results upload to GitHub Security tab
+- Automated security monitoring
+
 
 ## Setup Instructions
 
@@ -65,6 +79,7 @@ To enable automatic Docker image pushes:
 Ensure your repository has the following permissions:
 - Contents: Read
 - Packages: Write
+- Security events: Write (for CodeQL and security scanning)
 
 ## Workflow Features
 
@@ -85,7 +100,10 @@ Images are automatically tagged based on:
 ### Security Features
 
 - **SBOM Generation**: Software Bill of Materials
-- **npm Audit**: Dependency vulnerability checking (in test workflow)
+- **Trivy Scanning**: Filesystem vulnerability scanning
+- **CodeQL Analysis**: Static code analysis for JavaScript
+- **npm Audit**: Dependency vulnerability checking
+- **GitHub Security Tab**: Centralized security findings
 
 ### Health Check Testing
 
