@@ -17,7 +17,7 @@ A Discord bot that monitors specified channels for messages containing URLs and 
 - **Rate limiting**: Built-in rate limiting for slash commands to prevent abuse
 - **Health monitoring**: Built-in health check endpoints for Kubernetes deployments
 - **Configurable**: Easy setup via environment variables
-- **Error handling**: Robust error handling and logging
+- **Error handling**: Robust error handling + logging
 
 ## Setup
 
