@@ -89,7 +89,7 @@ jobs:
           -e BASEROW_API_URL=test \
           -e NODE_ENV=test \
           -p 3000:3000 \
-          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:main
         
         # Wait for container to start
         sleep 10
