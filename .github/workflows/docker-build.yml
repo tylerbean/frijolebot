@@ -70,11 +70,12 @@ jobs:
         format: 'sarif'
         output: 'trivy-results.sarif'
 
-    - name: Upload Trivy scan results to GitHub Security tab
+    - name: Upload Trivy scan results as artifact
       if: github.event_name != 'pull_request'
-      uses: github/codeql-action/upload-sarif@v3
+      uses: actions/upload-artifact@v4
       with:
-        sarif_file: 'trivy-results.sarif'
+        name: trivy-scan-results
+        path: trivy-results.sarif
 
     - name: Test Docker image
       if: github.event_name != 'pull_request'
