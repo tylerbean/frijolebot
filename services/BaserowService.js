@@ -33,7 +33,28 @@ class BaserowService {
             Logger.error('Error finding link by message ID:', error.response?.data || error.message);
             return null;
         }
+    }
+
+    /**
+     * Find a link by message ID across all guilds (for bulk operations)
+     * @param {string} messageId - Discord message ID
+     * @returns {Promise<Object|null>} Link object or null if not found
+     */
+    async findLinkByMessageIdAllGuilds(messageId) {
+        try {
+            const queryUrl = `${this.apiUrl}/?user_field_names=true&filters={"filter_type":"AND","filters":[{"field":"message_id","type":"equal","value":"${messageId}"}]}`;
+            
+            const response = await axios.get(queryUrl, {
+                headers: { 'Authorization': `Token ${this.apiToken}` }
+            });
+
+            const links = response.data.results;
+            return links.length > 0 ? links[0] : null;
+        } catch (error) {
+            Logger.error('Error finding link by message ID across all guilds:', error.response?.data || error.message);
+            return null;
         }
+    }
 
     /**
      * Store a new link in Baserow

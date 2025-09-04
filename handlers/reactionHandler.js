@@ -120,11 +120,17 @@ class ReactionHandler {
                 try {
                     const messageIds = JSON.parse(mapping.original_message_id);
                     if (Array.isArray(messageIds)) {
-                        Logger.debug(`Bulk marking ${messageIds.length} links as read in guild: ${mapping.guild_id}`);
+                        Logger.debug(`Bulk marking ${messageIds.length} links as read`);
                         let successCount = 0;
                         for (const id of messageIds) {
-                            const success = await this.baserowService.updateReadStatus(id, mapping.guild_id, true);
-                            if (success) successCount++;
+                            // For bulk operations, we need to find the actual guild_id for each message
+                            const link = await this.baserowService.findLinkByMessageIdAllGuilds(id);
+                            if (link) {
+                                const success = await this.baserowService.updateReadStatus(id, link.guild_id, true);
+                                if (success) successCount++;
+                            } else {
+                                Logger.warning(`Could not find link for message ID: ${id}`);
+                            }
                         }
                         Logger.success(`Marked ${successCount}/${messageIds.length} links as read via bulk action`);
                     }
@@ -160,11 +166,17 @@ class ReactionHandler {
                 try {
                     const messageIds = JSON.parse(mapping.original_message_id);
                     if (Array.isArray(messageIds)) {
-                        Logger.debug(`Bulk marking ${messageIds.length} links as unread in guild: ${mapping.guild_id}`);
+                        Logger.debug(`Bulk marking ${messageIds.length} links as unread`);
                         let successCount = 0;
                         for (const id of messageIds) {
-                            const success = await this.baserowService.updateReadStatus(id, mapping.guild_id, false);
-                            if (success) successCount++;
+                            // For bulk operations, we need to find the actual guild_id for each message
+                            const link = await this.baserowService.findLinkByMessageIdAllGuilds(id);
+                            if (link) {
+                                const success = await this.baserowService.updateReadStatus(id, link.guild_id, false);
+                                if (success) successCount++;
+                            } else {
+                                Logger.warning(`Could not find link for message ID: ${id}`);
+                            }
                         }
                         Logger.success(`Marked ${successCount}/${messageIds.length} links as unread via bulk removal`);
                     }
