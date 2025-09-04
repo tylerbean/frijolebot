@@ -23,7 +23,8 @@ describe('Config', () => {
     beforeEach(() => {
       process.env.DISCORD_BOT_TOKEN = 'test-discord-token';
       process.env.DISCORD_GUILD_ID = '123456789';
-      process.env.DISCORD_CHANNELS_TO_MONITOR = '111111111,222222222';
+      process.env.DISCORD_CHANNEL_TEST1 = '111111111';
+      process.env.DISCORD_CHANNEL_TEST2 = '222222222';
       process.env.BASEROW_API_TOKEN = 'test-baserow-token';
       process.env.BASEROW_API_URL = 'https://test-baserow.com/api/database/table/123/';
       process.env.HEALTH_CHECK_PORT = '3001';
@@ -48,19 +49,34 @@ describe('Config', () => {
         },
         health: {
           port: '3001'
+        },
+        rateLimit: {
+          enabled: true,
+          windowMs: 60000,
+          maxRequests: 5,
+          cleanupInterval: 300000
         }
       });
     });
 
     it('should parse channel IDs correctly', () => {
-      process.env.DISCORD_CHANNELS_TO_MONITOR = '111111111,222222222,333333333';
+      process.env.DISCORD_CHANNEL_TEST1 = '111111111';
+      process.env.DISCORD_CHANNEL_TEST2 = '222222222';
+      process.env.DISCORD_CHANNEL_TEST3 = '333333333';
       const config = require('../../config');
 
       expect(config.discord.channelsToMonitor).toEqual(['111111111', '222222222', '333333333']);
     });
 
     it('should handle single channel ID', () => {
-      process.env.DISCORD_CHANNELS_TO_MONITOR = '111111111';
+      // Clear all existing channel environment variables
+      Object.keys(process.env).forEach(key => {
+        if (key.startsWith('DISCORD_CHANNEL_')) {
+          delete process.env[key];
+        }
+      });
+      
+      process.env.DISCORD_CHANNEL_SINGLE = '111111111';
       const config = require('../../config');
 
       expect(config.discord.channelsToMonitor).toEqual(['111111111']);
@@ -84,65 +100,31 @@ describe('Config', () => {
   describe('with missing required environment variables', () => {
     it('should throw error for missing DISCORD_BOT_TOKEN', () => {
       process.env.DISCORD_GUILD_ID = '123456789';
-      process.env.DISCORD_CHANNELS_TO_MONITOR = '111111111';
+      process.env.DISCORD_CHANNEL_TEST1 = '111111111';
       process.env.BASEROW_API_TOKEN = 'test-baserow-token';
       process.env.BASEROW_API_URL = 'https://test-baserow.com/api/database/table/123/';
+      delete process.env.DISCORD_BOT_TOKEN;
 
       expect(() => {
         require('../../config');
-      }).toThrow('DISCORD_BOT_TOKEN is required');
+      }).toThrow('Missing required environment variables: DISCORD_BOT_TOKEN');
     });
 
     it('should throw error for missing DISCORD_GUILD_ID', () => {
       process.env.DISCORD_BOT_TOKEN = 'test-discord-token';
-      process.env.DISCORD_CHANNELS_TO_MONITOR = '111111111';
+      process.env.DISCORD_CHANNEL_TEST1 = '111111111';
       process.env.BASEROW_API_TOKEN = 'test-baserow-token';
       process.env.BASEROW_API_URL = 'https://test-baserow.com/api/database/table/123/';
+      delete process.env.DISCORD_GUILD_ID;
 
       expect(() => {
         require('../../config');
-      }).toThrow('DISCORD_GUILD_ID is required');
+      }).toThrow('Missing required environment variables: DISCORD_GUILD_ID');
     });
 
-    it('should throw error for missing DISCORD_CHANNELS_TO_MONITOR', () => {
+    it('should throw error for missing Discord channels', () => {
       process.env.DISCORD_BOT_TOKEN = 'test-discord-token';
       process.env.DISCORD_GUILD_ID = '123456789';
-      process.env.BASEROW_API_TOKEN = 'test-baserow-token';
-      process.env.BASEROW_API_URL = 'https://test-baserow.com/api/database/table/123/';
-
-      expect(() => {
-        require('../../config');
-      }).toThrow('DISCORD_CHANNELS_TO_MONITOR is required');
-    });
-
-    it('should throw error for missing BASEROW_API_TOKEN', () => {
-      process.env.DISCORD_BOT_TOKEN = 'test-discord-token';
-      process.env.DISCORD_GUILD_ID = '123456789';
-      process.env.DISCORD_CHANNELS_TO_MONITOR = '111111111';
-      process.env.BASEROW_API_URL = 'https://test-baserow.com/api/database/table/123/';
-
-      expect(() => {
-        require('../../config');
-      }).toThrow('BASEROW_API_TOKEN is required');
-    });
-
-    it('should throw error for missing BASEROW_API_URL', () => {
-      process.env.DISCORD_BOT_TOKEN = 'test-discord-token';
-      process.env.DISCORD_GUILD_ID = '123456789';
-      process.env.DISCORD_CHANNELS_TO_MONITOR = '111111111';
-      process.env.BASEROW_API_TOKEN = 'test-baserow-token';
-
-      expect(() => {
-        require('../../config');
-      }).toThrow('BASEROW_API_URL is required');
-    });
-  });
-
-  describe('with empty channel list', () => {
-    it('should throw error for empty DISCORD_CHANNELS_TO_MONITOR', () => {
-      process.env.DISCORD_BOT_TOKEN = 'test-discord-token';
-      process.env.DISCORD_GUILD_ID = '123456789';
-      process.env.DISCORD_CHANNELS_TO_MONITOR = '';
       process.env.BASEROW_API_TOKEN = 'test-baserow-token';
       process.env.BASEROW_API_URL = 'https://test-baserow.com/api/database/table/123/';
 
@@ -151,10 +133,48 @@ describe('Config', () => {
       }).toThrow('No Discord channels configured for monitoring');
     });
 
-    it('should throw error for whitespace-only DISCORD_CHANNELS_TO_MONITOR', () => {
+    it('should throw error for missing BASEROW_API_TOKEN', () => {
       process.env.DISCORD_BOT_TOKEN = 'test-discord-token';
       process.env.DISCORD_GUILD_ID = '123456789';
-      process.env.DISCORD_CHANNELS_TO_MONITOR = '   ,  ,  ';
+      process.env.DISCORD_CHANNEL_TEST1 = '111111111';
+      process.env.BASEROW_API_URL = 'https://test-baserow.com/api/database/table/123/';
+      delete process.env.BASEROW_API_TOKEN;
+
+      expect(() => {
+        require('../../config');
+      }).toThrow('Missing required environment variables: BASEROW_API_TOKEN');
+    });
+
+    it('should throw error for missing BASEROW_API_URL', () => {
+      process.env.DISCORD_BOT_TOKEN = 'test-discord-token';
+      process.env.DISCORD_GUILD_ID = '123456789';
+      process.env.DISCORD_CHANNEL_TEST1 = '111111111';
+      process.env.BASEROW_API_TOKEN = 'test-baserow-token';
+      delete process.env.BASEROW_API_URL;
+
+      expect(() => {
+        require('../../config');
+      }).toThrow('Missing required environment variables: BASEROW_API_URL');
+    });
+  });
+
+  describe('with empty channel list', () => {
+    it('should throw error for empty Discord channels', () => {
+      process.env.DISCORD_BOT_TOKEN = 'test-discord-token';
+      process.env.DISCORD_GUILD_ID = '123456789';
+      process.env.DISCORD_CHANNEL_EMPTY = '';
+      process.env.BASEROW_API_TOKEN = 'test-baserow-token';
+      process.env.BASEROW_API_URL = 'https://test-baserow.com/api/database/table/123/';
+
+      expect(() => {
+        require('../../config');
+      }).toThrow('No Discord channels configured for monitoring');
+    });
+
+    it('should throw error for whitespace-only Discord channels', () => {
+      process.env.DISCORD_BOT_TOKEN = 'test-discord-token';
+      process.env.DISCORD_GUILD_ID = '123456789';
+      process.env.DISCORD_CHANNEL_WHITESPACE = '   ';
       process.env.BASEROW_API_TOKEN = 'test-baserow-token';
       process.env.BASEROW_API_URL = 'https://test-baserow.com/api/database/table/123/';
 
@@ -168,7 +188,9 @@ describe('Config', () => {
     it('should filter out empty channel IDs', () => {
       process.env.DISCORD_BOT_TOKEN = 'test-discord-token';
       process.env.DISCORD_GUILD_ID = '123456789';
-      process.env.DISCORD_CHANNELS_TO_MONITOR = '111111111,,222222222,';
+      process.env.DISCORD_CHANNEL_VALID1 = '111111111';
+      process.env.DISCORD_CHANNEL_EMPTY = '';
+      process.env.DISCORD_CHANNEL_VALID2 = '222222222';
       process.env.BASEROW_API_TOKEN = 'test-baserow-token';
       process.env.BASEROW_API_URL = 'https://test-baserow.com/api/database/table/123/';
 
@@ -180,7 +202,9 @@ describe('Config', () => {
     it('should filter out whitespace-only channel IDs', () => {
       process.env.DISCORD_BOT_TOKEN = 'test-discord-token';
       process.env.DISCORD_GUILD_ID = '123456789';
-      process.env.DISCORD_CHANNELS_TO_MONITOR = '111111111,   ,222222222,  ';
+      process.env.DISCORD_CHANNEL_VALID1 = '111111111';
+      process.env.DISCORD_CHANNEL_WHITESPACE = '   ';
+      process.env.DISCORD_CHANNEL_VALID2 = '222222222';
       process.env.BASEROW_API_TOKEN = 'test-baserow-token';
       process.env.BASEROW_API_URL = 'https://test-baserow.com/api/database/table/123/';
 

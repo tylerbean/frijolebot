@@ -81,6 +81,12 @@ const mockConfig = {
   },
   health: {
     port: 3001
+  },
+  rateLimit: {
+    enabled: true,
+    windowMs: 60000,
+    maxRequests: 5,
+    cleanupInterval: 300000
   }
 };
 

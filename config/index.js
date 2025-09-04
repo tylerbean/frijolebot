@@ -17,7 +17,7 @@ if (missingVars.length > 0) {
 const channelIds = Object.keys(process.env)
     .filter(key => key.startsWith('DISCORD_CHANNEL_'))
     .map(key => process.env[key])
-    .filter(id => id && id !== 'your_channel_id_here');
+    .filter(id => id && id.trim() !== '' && id !== 'your_channel_id_here');
 
 if (channelIds.length === 0) {
     throw new Error('No Discord channels configured for monitoring');
