@@ -38,5 +38,11 @@ module.exports = {
     },
     health: {
         port: process.env.HEALTH_CHECK_PORT || 3000
+    },
+    rateLimit: {
+        windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 60000, // 1 minute
+        maxRequests: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 5, // 5 requests per window
+        cleanupInterval: parseInt(process.env.RATE_LIMIT_CLEANUP_INTERVAL) || 300000, // 5 minutes
+        enabled: process.env.RATE_LIMIT_ENABLED !== 'false' // Default to enabled
     }
 };

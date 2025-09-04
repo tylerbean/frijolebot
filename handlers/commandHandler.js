@@ -1,5 +1,6 @@
 const { EmbedBuilder, MessageFlags } = require('discord.js');
 const Logger = require('../utils/logger');
+const RateLimiter = require('../utils/rateLimiter');
 
 class CommandHandler {
     constructor(baserowService, reactionHandler, config, discordClient) {
@@ -7,11 +8,59 @@ class CommandHandler {
         this.reactionHandler = reactionHandler;
         this.config = config;
         this.discordClient = discordClient;
+        
+        // Initialize rate limiter if enabled
+        if (config.rateLimit.enabled) {
+            this.rateLimiter = new RateLimiter({
+                windowMs: config.rateLimit.windowMs,
+                maxRequests: config.rateLimit.maxRequests,
+                cleanupInterval: config.rateLimit.cleanupInterval
+            });
+            Logger.info(`Rate limiting enabled: ${config.rateLimit.maxRequests} requests per ${config.rateLimit.windowMs}ms`);
+        } else {
+            this.rateLimiter = null;
+            Logger.info('Rate limiting disabled');
+        }
+    }
+
+    /**
+     * Check rate limit for a user and command
+     * @param {Object} interaction - Discord interaction object
+     * @param {string} commandName - Name of the command
+     * @returns {Object|null} - Rate limit result or null if not rate limited
+     */
+    async checkRateLimit(interaction, commandName) {
+        if (!this.rateLimiter) {
+            return null; // Rate limiting disabled
+        }
+
+        const userId = interaction.user.id;
+        const rateLimitResult = this.rateLimiter.checkLimit(userId, commandName);
+
+        if (!rateLimitResult.allowed) {
+            const retryTime = this.rateLimiter.formatRetryTime(rateLimitResult.retryAfter);
+            
+            await interaction.editReply({
+                content: `⏰ **Rate Limited**\n\nYou've used this command too many times. Please try again in **${retryTime}**.\n\n*You can use this command ${this.config.rateLimit.maxRequests} times per minute.*`,
+                flags: MessageFlags.Ephemeral
+            });
+
+            Logger.warning(`Rate limit exceeded for user ${interaction.user.username} (${userId}) on command ${commandName}`);
+            return rateLimitResult;
+        }
+
+        return null; // Not rate limited
     }
 
     async handleUnreadCommand(interaction) {
         try {
             await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+            
+            // Check rate limit
+            const rateLimitResult = await this.checkRateLimit(interaction, 'unread');
+            if (rateLimitResult) {
+                return; // Rate limited, response already sent
+            }
             
             const username = interaction.user.username;
             const guildId = interaction.guildId;
@@ -229,6 +278,102 @@ class CommandHandler {
                 content: '❌ An error occurred while fetching your unread links.',
                 flags: MessageFlags.Ephemeral
             });
+        }
+    }
+
+    /**
+     * Generic command handler that applies rate limiting to any command
+     * @param {Object} interaction - Discord interaction object
+     * @param {string} commandName - Name of the command
+     * @param {Function} commandHandler - Function to execute if not rate limited
+     * @returns {Promise} - Result of command execution or rate limit response
+     */
+    async handleCommand(interaction, commandName, commandHandler) {
+        try {
+            await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+            
+            // Check rate limit
+            const rateLimitResult = await this.checkRateLimit(interaction, commandName);
+            if (rateLimitResult) {
+                return; // Rate limited, response already sent
+            }
+            
+            // Execute the actual command
+            await commandHandler(interaction);
+            
+        } catch (error) {
+            Logger.error(`Error handling ${commandName} command:`, error);
+            try {
+                await interaction.editReply({
+                    content: '❌ An error occurred while processing your command. Please try again later.',
+                    flags: MessageFlags.Ephemeral
+                });
+            } catch (replyError) {
+                Logger.error('Error sending error reply:', replyError);
+            }
+        }
+    }
+
+    /**
+     * Get rate limit information for a user
+     * @param {string} userId - Discord user ID
+     * @param {string} commandName - Name of the command
+     * @returns {Object} - Rate limit information
+     */
+    getRateLimitInfo(userId, commandName = 'global') {
+        if (!this.rateLimiter) {
+            return { enabled: false };
+        }
+        
+        const info = this.rateLimiter.getLimitInfo(userId, commandName);
+        return {
+            enabled: true,
+            remaining: info.remaining,
+            resetTime: info.resetTime,
+            retryAfter: info.retryAfter,
+            maxRequests: this.config.rateLimit.maxRequests,
+            windowMs: this.config.rateLimit.windowMs
+        };
+    }
+
+    /**
+     * Reset rate limit for a user (admin function)
+     * @param {string} userId - Discord user ID
+     * @param {string} commandName - Name of the command (optional)
+     */
+    resetRateLimit(userId, commandName = null) {
+        if (!this.rateLimiter) {
+            return;
+        }
+        
+        if (commandName) {
+            this.rateLimiter.resetLimit(userId, commandName);
+        } else {
+            this.rateLimiter.resetUserLimits(userId);
+        }
+    }
+
+    /**
+     * Get rate limiter statistics
+     * @returns {Object} - Rate limiter statistics
+     */
+    getRateLimitStats() {
+        if (!this.rateLimiter) {
+            return { enabled: false };
+        }
+        
+        return {
+            enabled: true,
+            ...this.rateLimiter.getStats()
+        };
+    }
+
+    /**
+     * Clean up resources when CommandHandler is destroyed
+     */
+    destroy() {
+        if (this.rateLimiter) {
+            this.rateLimiter.destroy();
         }
     }
 }

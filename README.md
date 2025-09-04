@@ -10,6 +10,7 @@ A Discord bot that monitors specified channels for messages containing URLs and 
 - **DM link management**: Users can view and manage unread links via DM interactions
 - **Reaction-based interface**: Toggle read/unread status using Discord reactions
 - **Multi-server support**: Works across multiple Discord servers with proper access control
+- **Rate limiting**: Built-in rate limiting for slash commands to prevent abuse
 - **Health monitoring**: Built-in health check endpoints for Kubernetes deployments
 - **Configurable**: Easy setup via environment variables
 - **Error handling**: Robust error handling and logging
@@ -170,6 +171,59 @@ See `k8s-deployment.yaml` for a complete Kubernetes deployment example with:
 ### Environment Variables
 
 - **`HEALTH_CHECK_PORT`** - Port for health check server (default: 3000)
+- **`RATE_LIMIT_ENABLED`** - Enable/disable rate limiting (default: true)
+- **`RATE_LIMIT_WINDOW_MS`** - Rate limit window in milliseconds (default: 60000)
+- **`RATE_LIMIT_MAX_REQUESTS`** - Maximum requests per window (default: 5)
+- **`RATE_LIMIT_CLEANUP_INTERVAL`** - Cleanup interval in milliseconds (default: 300000)
+
+## Rate Limiting
+
+The bot includes built-in rate limiting for slash commands to prevent abuse and ensure fair usage:
+
+### Features
+
+- **Per-user limits**: Each user has independent rate limits
+- **Per-command limits**: Different commands can have separate limits
+- **Configurable windows**: Adjustable time windows and request limits
+- **Automatic cleanup**: Expired rate limit entries are automatically removed
+- **User-friendly messages**: Clear error messages with retry information
+
+### Default Configuration
+
+- **Window**: 1 minute (60,000ms)
+- **Limit**: 5 requests per window
+- **Cleanup**: Every 5 minutes
+
+### Rate Limit Response
+
+When a user exceeds the rate limit, they receive a message like:
+
+```
+⏰ Rate Limited
+
+You've used this command too many times. Please try again in 45 seconds.
+
+*You can use this command 5 times per minute.*
+```
+
+### Configuration Examples
+
+**Stricter limits (3 requests per 2 minutes):**
+```bash
+RATE_LIMIT_WINDOW_MS=120000
+RATE_LIMIT_MAX_REQUESTS=3
+```
+
+**More lenient limits (10 requests per 30 seconds):**
+```bash
+RATE_LIMIT_WINDOW_MS=30000
+RATE_LIMIT_MAX_REQUESTS=10
+```
+
+**Disable rate limiting:**
+```bash
+RATE_LIMIT_ENABLED=false
+```
 
 ## Troubleshooting
 

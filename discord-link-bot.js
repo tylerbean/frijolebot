@@ -168,6 +168,9 @@ process.on('SIGINT', () => {
     if (healthCheckService) {
         healthCheckService.stop();
     }
+    if (commandHandler) {
+        commandHandler.destroy();
+    }
     client.destroy();
     process.exit(0);
 });
@@ -176,6 +179,9 @@ process.on('SIGTERM', () => {
     Logger.startup('Received SIGTERM, shutting down gracefully...');
     if (healthCheckService) {
         healthCheckService.stop();
+    }
+    if (commandHandler) {
+        commandHandler.destroy();
     }
     client.destroy();
     process.exit(0);
