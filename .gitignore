@@ -154,3 +154,5 @@ bot-data/
 temp/
 
 .cursor/
+.cursor/mcp.bak
+.cursor/mcp.json
