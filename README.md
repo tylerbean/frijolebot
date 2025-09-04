@@ -2,7 +2,6 @@
 
 [![Docker Build](https://github.com/tylerbean/frijolebot/actions/workflows/docker-build.yml/badge.svg)](https://github.com/tylerbean/frijolebot/actions/workflows/docker-build.yml)
 [![Tests](https://github.com/tylerbean/frijolebot/actions/workflows/test.yml/badge.svg)](https://github.com/tylerbean/frijolebot/actions/workflows/test.yml)
-[![Security Scan](https://github.com/tylerbean/frijolebot/actions/workflows/security.yml/badge.svg)](https://github.com/tylerbean/frijolebot/actions/workflows/security.yml)
 
 A Discord bot that monitors specified channels for messages containing URLs and stores them in a Baserow database for link management and read status tracking.
 
