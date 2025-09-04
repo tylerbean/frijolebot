@@ -202,5 +202,18 @@ setInterval(async () => {
 // Start the bot
 client.login(config.discord.token).catch(error => {
     Logger.error('Failed to login:', error);
-    process.exit(1);
+    
+    // In test mode, start health check service even if Discord fails
+    if (config.app.nodeEnv === 'test') {
+        Logger.startup('Test mode: Starting health check service despite Discord auth failure');
+        healthCheckService = new HealthCheckService(null, baserowService, config);
+        healthCheckService.start();
+        
+        // Keep the process alive for health checks
+        setInterval(() => {
+            // Keep alive
+        }, 1000);
+    } else {
+        process.exit(1);
+    }
 });
