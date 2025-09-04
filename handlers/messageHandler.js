@@ -17,9 +17,9 @@ class MessageHandler {
             
             Logger.info(`Found ${urls.length} URL(s) in #${message.channel.name} from ${message.author.username}`);
             
-            // Store links in Baserow
+            // Store links in Baserow with guild_id
             for (const url of urls) {
-                await this.baserowService.storeLink(message, url);
+                await this.baserowService.storeLink(message, url, message.guild.id);
             }
             
             // Add green checkmark reaction to the message

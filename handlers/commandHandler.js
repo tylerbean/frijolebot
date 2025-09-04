@@ -12,8 +12,9 @@ class CommandHandler {
         try {
             await interaction.deferReply({ flags: MessageFlags.Ephemeral });
             
-            const username = interaction.user.username;
-            const unreadLinks = await this.baserowService.getUnreadLinksForUser(username);
+                    const username = interaction.user.username;
+        const guildId = interaction.guildId;
+        const unreadLinks = await this.baserowService.getUnreadLinksForUser(username, guildId);
             
             if (unreadLinks.length === 0) {
                 await interaction.editReply({
@@ -60,8 +61,8 @@ class CommandHandler {
                 const reactions = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟'];
                 for (let i = 0; i < Math.min(linksToShow.length, 10); i++) {
                     await dmMessage.react(reactions[i]);
-                    // Map reaction emoji to original message ID
-                    this.reactionHandler.addDMMessageMapping(dmMessage.id, reactions[i], linksToShow[i].message_id);
+                    // Map reaction emoji to original message ID with guild_id
+                    this.reactionHandler.addDMMessageMapping(dmMessage.id, reactions[i], linksToShow[i].message_id, guildId);
                 }
                 
                 // If more than 10 links, add additional reactions for links 11-25
@@ -70,15 +71,15 @@ class CommandHandler {
                     for (let i = 10; i < Math.min(linksToShow.length, 25); i++) {
                         const reactionIndex = i - 10;
                         await dmMessage.react(additionalReactions[reactionIndex]);
-                        // Map reaction emoji to original message ID
-                        this.reactionHandler.addDMMessageMapping(dmMessage.id, additionalReactions[reactionIndex], linksToShow[i].message_id);
+                        // Map reaction emoji to original message ID with guild_id
+                        this.reactionHandler.addDMMessageMapping(dmMessage.id, additionalReactions[reactionIndex], linksToShow[i].message_id, guildId);
                     }
                 }
                 
                 // Add checkmark reaction for "mark all as read" functionality
                 await dmMessage.react('✅');
-                // Map checkmark to all message IDs for bulk marking
-                this.reactionHandler.addBulkDMMapping(dmMessage.id, linksToShow.map(link => link.message_id));
+                // Map checkmark to all message IDs for bulk marking with guild_id
+                this.reactionHandler.addBulkDMMapping(dmMessage.id, linksToShow.map(link => link.message_id), guildId);
                 
                 await interaction.editReply({
                     content: '📬 I\'ve sent you a DM with your unread links! React to mark them as read.',

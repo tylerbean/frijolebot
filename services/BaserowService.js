@@ -1,4 +1,5 @@
 const axios = require('axios');
+const Logger = require('../utils/logger');
 
 class BaserowService {
     constructor(apiToken, apiUrl) {
@@ -11,13 +12,14 @@ class BaserowService {
     }
 
     /**
-     * Find a link by message ID
+     * Find a link by message ID and guild ID
      * @param {string} messageId - Discord message ID
+     * @param {string} guildId - Discord guild/server ID
      * @returns {Promise<Object|null>} Link object or null if not found
      */
-    async findLinkByMessageId(messageId) {
+    async findLinkByMessageId(messageId, guildId) {
         try {
-            const queryUrl = `${this.apiUrl}/?user_field_names=true&filters={"filter_type":"AND","filters":[{"field":"message_id","type":"equal","value":"${messageId}"}]}`;
+            const queryUrl = `${this.apiUrl}/?user_field_names=true&filters={"filter_type":"AND","filters":[{"field":"message_id","type":"equal","value":"${messageId}"},{"field":"guild_id","type":"equal","value":"${guildId}"}]}`;
             
             const response = await axios.get(queryUrl, {
                 headers: { 'Authorization': `Token ${this.apiToken}` }
@@ -26,18 +28,19 @@ class BaserowService {
             const links = response.data.results;
             return links.length > 0 ? links[0] : null;
         } catch (error) {
-            console.error('Error finding link by message ID:', error.response?.data || error.message);
+            Logger.error('Error finding link by message ID:', error.response?.data || error.message);
             return null;
         }
-    }
+        }
 
     /**
      * Store a new link in Baserow
      * @param {Object} messageData - Discord message data
      * @param {string} url - URL to store
+     * @param {string} guildId - Discord guild/server ID
      * @returns {Promise<Object|null>} Created link object or null if failed
      */
-    async storeLink(messageData, url) {
+    async storeLink(messageData, url, guildId) {
         try {
             const linkData = {
                 url: url,
@@ -48,19 +51,20 @@ class BaserowService {
                 user_id: messageData.author.id,
                 message_id: messageData.id,
                 timestamp: messageData.createdAt.toISOString(),
-                read: false
+                read: false,
+                guild_id: guildId
             };
 
-            console.log('Storing link in Baserow:', linkData);
+            Logger.info('Storing link in Baserow:', linkData);
 
             const response = await axios.post(`${this.apiUrl}/?user_field_names=true`, linkData, {
                 headers: this.headers
             });
 
-            console.log('Link stored successfully:', response.data);
+            Logger.success('Link stored successfully:', response.data);
             return response.data;
         } catch (error) {
-            console.error('Error storing link in Baserow:', error.response?.data || error.message);
+            Logger.error('Error storing link in Baserow:', error.response?.data || error.message);
             return null;
         }
     }
@@ -68,14 +72,15 @@ class BaserowService {
     /**
      * Update link read status
      * @param {string} messageId - Discord message ID
+     * @param {string} guildId - Discord guild/server ID
      * @param {boolean} readStatus - True for read, false for unread
      * @returns {Promise<boolean>} Success status
      */
-    async updateReadStatus(messageId, readStatus) {
+    async updateReadStatus(messageId, guildId, readStatus) {
         try {
-            const link = await this.findLinkByMessageId(messageId);
+            const link = await this.findLinkByMessageId(messageId, guildId);
             if (!link) {
-                console.log(`No link found with message ID: ${messageId}`);
+                Logger.warning(`No link found with message ID: ${messageId} in guild: ${guildId}`);
                 return false;
             }
 
@@ -85,10 +90,10 @@ class BaserowService {
                 headers: this.headers
             });
 
-            console.log(`Marked link as ${readStatus ? 'read' : 'unread'}: ${link.url}`);
+            Logger.success(`Marked link as ${readStatus ? 'read' : 'unread'}: ${link.url}`);
             return true;
         } catch (error) {
-            console.error(`Error marking link as ${readStatus ? 'read' : 'unread'}:`, error.response?.data || error.message);
+            Logger.error(`Error marking link as ${readStatus ? 'read' : 'unread'}:`, error.response?.data || error.message);
             return false;
         }
     }
@@ -96,26 +101,27 @@ class BaserowService {
     /**
      * Update read status from reaction (only if reactor is different from poster)
      * @param {string} messageId - Discord message ID
+     * @param {string} guildId - Discord guild/server ID
      * @param {string} reactorUsername - Username of person reacting
      * @param {boolean} readStatus - True for read, false for unread
      * @returns {Promise<boolean>} Success status
      */
-    async updateReadStatusFromReaction(messageId, reactorUsername, readStatus) {
+    async updateReadStatusFromReaction(messageId, guildId, reactorUsername, readStatus) {
         try {
-            console.log(`🔍 Looking for link with message_id: ${messageId}`);
-            console.log(`🔍 Reactor username: ${reactorUsername}`);
+            Logger.debug(`Looking for link with message_id: ${messageId} in guild: ${guildId}`);
+            Logger.debug(`Reactor username: ${reactorUsername}`);
             
-            const link = await this.findLinkByMessageId(messageId);
+            const link = await this.findLinkByMessageId(messageId, guildId);
             if (!link) {
-                console.log('❌ No link found with message ID:', messageId);
+                Logger.error('No link found with message ID:', messageId);
                 return false;
             }
 
-            console.log(`🔍 Found link:`, link);
+            Logger.debug(`Found link:`, link);
             
             // Check if reactor is different from original poster
             if (link.user !== reactorUsername) {
-                console.log(`✅ Reactor (${reactorUsername}) is different from original poster (${link.user}), updating read status`);
+                Logger.success(`Reactor (${reactorUsername}) is different from original poster (${link.user}), updating read status`);
                 
                 await axios.patch(`${this.apiUrl}/${link.id}/?user_field_names=true`, {
                     read: readStatus
@@ -123,32 +129,33 @@ class BaserowService {
                     headers: this.headers
                 });
 
-                console.log(`✅ Marked link as ${readStatus ? 'read' : 'unread'}: ${link.url}`);
+                Logger.success(`Marked link as ${readStatus ? 'read' : 'unread'}: ${link.url}`);
                 return true;
             }
 
-            console.log(`⚠️ Reactor is the same as the original poster, skipping read status update`);
+            Logger.warning(`Reactor is the same as the original poster, skipping read status update`);
             return false;
         } catch (error) {
-            console.error(`❌ Error updating read status from reaction:`, error.response?.data || error.message);
+            Logger.error(`Error updating read status from reaction:`, error.response?.data || error.message);
             if (error.response) {
-                console.error('❌ Response status:', error.response.status);
-                console.error('❌ Response headers:', error.response.headers);
+                Logger.error('Response status:', error.response.status);
+                Logger.error('Response headers:', error.response.headers);
             }
             return false;
         }
     }
 
     /**
-     * Delete a link by message ID
+     * Delete a link by message ID and guild ID
      * @param {string} messageId - Discord message ID
+     * @param {string} guildId - Discord guild/server ID
      * @returns {Promise<boolean>} Success status
      */
-    async deleteLink(messageId) {
+    async deleteLink(messageId, guildId) {
         try {
-            const link = await this.findLinkByMessageId(messageId);
+            const link = await this.findLinkByMessageId(messageId, guildId);
             if (!link) {
-                console.log('No link found with message ID:', messageId);
+                Logger.warning('No link found with message ID:', messageId);
                 return false;
             }
             
@@ -156,22 +163,23 @@ class BaserowService {
                 headers: this.headers
             });
 
-            console.log(`Deleted link from Baserow: ${link.url}`);
+            Logger.success(`Deleted link from Baserow: ${link.url}`);
             return true;
         } catch (error) {
-            console.error('Error deleting link from Baserow:', error.response?.data || error.message);
+            Logger.error('Error deleting link from Baserow:', error.response?.data || error.message);
             return false;
         }
     }
 
     /**
-     * Get all unread links for a user (excluding their own posts)
+     * Get all unread links for a user in a specific guild (excluding their own posts)
      * @param {string} username - Username to get unread links for
+     * @param {string} guildId - Discord guild/server ID
      * @returns {Promise<Array>} Array of unread links
      */
-    async getUnreadLinksForUser(username) {
+    async getUnreadLinksForUser(username, guildId) {
         try {
-            const response = await axios.get(`${this.apiUrl}/?user_field_names=true`, {
+            const response = await axios.get(`${this.apiUrl}/?user_field_names=true&filters={"filter_type":"AND","filters":[{"field":"guild_id","type":"equal","value":"${guildId}"}]}`, {
                 headers: { 'Authorization': `Token ${this.apiToken}` }
             });
 
@@ -186,7 +194,7 @@ class BaserowService {
 
             return unreadLinks;
         } catch (error) {
-            console.error('Error fetching unread links:', error.response?.data || error.message);
+            Logger.error('Error fetching unread links:', error.response?.data || error.message);
             return [];
         }
     }

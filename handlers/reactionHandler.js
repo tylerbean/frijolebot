@@ -57,7 +57,7 @@ class ReactionHandler {
             Logger.info(`Channel reaction: ${reaction.emoji.name} by ${user.username} on message ${reaction.message.id}`);
 
             // Mark link as read in Baserow if reactor is different from original poster
-            await this.baserowService.updateReadStatusFromReaction(reaction.message.id, user.username, true);
+            await this.baserowService.updateReadStatusFromReaction(reaction.message.id, reaction.message.guild.id, user.username, true);
             
         } catch (error) {
             Logger.error('Error handling reaction:', error.message);
@@ -94,7 +94,7 @@ class ReactionHandler {
             Logger.info(`Reaction removed: ${reaction.emoji.name} by ${user.username} on message ${reaction.message.id}`);
 
             // Mark link as unread in Baserow if reactor is different from original poster
-            await this.baserowService.updateReadStatusFromReaction(reaction.message.id, user.username, false);
+            await this.baserowService.updateReadStatusFromReaction(reaction.message.id, reaction.message.guild.id, user.username, false);
             
         } catch (error) {
             Logger.error('Error handling reaction removal:', error.message);
@@ -108,25 +108,26 @@ class ReactionHandler {
         Logger.debug(`dmMessageMap has ${this.dmMessageMap.size} entries`);
         
         if (this.dmMessageMap.has(key)) {
-            const messageId = this.dmMessageMap.get(key);
-            Logger.debug(`Found mapping: ${key} -> ${messageId}`);
+            const mapping = this.dmMessageMap.get(key);
+            Logger.debug(`Found mapping: ${key} -> ${JSON.stringify(mapping)}`);
             
             // Handle checkmark for "mark all as read"
             if (reaction.emoji.name === '✅') {
-                const messageIds = this.dmMessageMap.get(key);
+                const { messageIds, guildId } = mapping;
                 if (Array.isArray(messageIds)) {
-                    Logger.debug(`Bulk marking ${messageIds.length} links as read`);
+                    Logger.debug(`Bulk marking ${messageIds.length} links as read in guild: ${guildId}`);
                     let successCount = 0;
                     for (const id of messageIds) {
-                        const success = await this.baserowService.updateReadStatus(id, true);
+                        const success = await this.baserowService.updateReadStatus(id, guildId, true);
                         if (success) successCount++;
                     }
                     Logger.success(`Marked ${successCount}/${messageIds.length} links as read via bulk action`);
                 }
             } else {
                 // Handle individual numbered reactions
-                Logger.debug(`Attempting to mark single link as read: ${messageId}`);
-                const success = await this.baserowService.updateReadStatus(messageId, true);
+                const { messageId, guildId } = mapping;
+                Logger.debug(`Attempting to mark single link as read: ${messageId} in guild: ${guildId}`);
+                const success = await this.baserowService.updateReadStatus(messageId, guildId, true);
                 if (success) {
                     Logger.success(`Marked link as read via DM reaction: ${messageId}`);
                 } else {
@@ -167,7 +168,7 @@ class ReactionHandler {
         if (hasAdminPerms || isOriginalPoster) {
             try {
                 // Delete from Baserow first
-                const baserowDeleted = await this.baserowService.deleteLink(reaction.message.id);
+                const baserowDeleted = await this.baserowService.deleteLink(reaction.message.id, reaction.message.guild.id);
                 
                 // Delete the Discord message
                 await reaction.message.delete();
@@ -224,13 +225,13 @@ class ReactionHandler {
     }
 
     // Method to add DM message mapping (used by command handler)
-    addDMMessageMapping(dmMessageId, emoji, originalMessageId) {
-        this.dmMessageMap.set(`${dmMessageId}-${emoji}`, originalMessageId);
+    addDMMessageMapping(dmMessageId, emoji, originalMessageId, guildId) {
+        this.dmMessageMap.set(`${dmMessageId}-${emoji}`, { messageId: originalMessageId, guildId: guildId });
     }
 
     // Method to add bulk mapping for checkmark
-    addBulkDMMapping(dmMessageId, messageIds) {
-        this.dmMessageMap.set(`${dmMessageId}-✅`, messageIds);
+    addBulkDMMapping(dmMessageId, messageIds, guildId) {
+        this.dmMessageMap.set(`${dmMessageId}-✅`, { messageIds: messageIds, guildId: guildId });
     }
 }
 
