@@ -126,7 +126,7 @@ class CommandHandler {
                 return;
             }
             
-            const unreadLinks = await this.baserowService.getUnreadLinksForUser(username, guildId);
+            const unreadLinks = await this.baserowService.getUnreadLinksForUser(username, guildId, interaction.user.id, this.discordClient);
             
             if (unreadLinks.length === 0) {
                 await interaction.editReply({

@@ -177,9 +177,11 @@ class BaserowService {
      * Get all unread links for a user in a specific guild (excluding their own posts)
      * @param {string} username - Username to get unread links for
      * @param {string} guildId - Discord guild/server ID
+     * @param {string} userId - Discord user ID to check channel access
+     * @param {Object} discordClient - Discord client to check channel access
      * @returns {Promise<Array>} Array of unread links
      */
-    async getUnreadLinksForUser(username, guildId) {
+    async getUnreadLinksForUser(username, guildId, userId, discordClient) {
         try {
             const response = await axios.get(`${this.apiUrl}/?user_field_names=true&filters={"filter_type":"AND","filters":[{"field":"guild_id","type":"equal","value":"${guildId}"}]}`, {
                 headers: { 'Authorization': `Token ${this.apiToken}` }
@@ -188,7 +190,34 @@ class BaserowService {
             const allLinks = response.data.results;
             
             Logger.info(`Found ${allLinks.length} total links in guild ${guildId}`);
-            Logger.info(`Looking for unread links for user: ${username}`);
+            Logger.info(`Looking for unread links for user: ${username} (${userId})`);
+            
+            // Get user's channel access within this guild
+            const userChannels = new Set();
+            try {
+                const guild = discordClient.guilds.cache.get(guildId);
+                if (guild) {
+                    const member = await guild.members.fetch(userId).catch(() => null);
+                    if (member) {
+                        for (const [channelId, channel] of guild.channels.cache) {
+                            try {
+                                const hasAccess = channel.permissionsFor(member)?.has('ViewChannel') ?? false;
+                                if (hasAccess) {
+                                    userChannels.add(channelId);
+                                    Logger.debug(`User ${username} has access to channel: ${channel.name} (${channelId})`);
+                                }
+                            } catch (channelError) {
+                                Logger.debug(`Could not check channel access for ${channelId}:`, channelError.message);
+                            }
+                        }
+                    }
+                }
+            } catch (error) {
+                Logger.error('Error checking user channel access:', error);
+                return [];
+            }
+            
+            Logger.info(`User ${username} has access to ${userChannels.size} channels in guild ${guildId}`);
             
             // Debug: Log all links to see their structure
             allLinks.forEach((link, index) => {
@@ -197,15 +226,18 @@ class BaserowService {
                     read: link.read,
                     readType: typeof link.read,
                     url: link.url,
-                    message_id: link.message_id
+                    message_id: link.message_id,
+                    channel_id: link.channel_id,
+                    userHasChannelAccess: userChannels.has(link.channel_id)
                 });
             });
             
-            // Filter for unread links not posted by the requesting user
+            // Filter for unread links not posted by the requesting user AND from channels they have access to
             const unreadLinks = allLinks.filter(link => {
                 const isNotOwnPost = link.user !== username;
                 const isUnread = link.read === false;
                 const hasUrl = !!link.url;
+                const hasChannelAccess = userChannels.has(link.channel_id);
                 
                 Logger.info(`Link filtering:`, {
                     user: link.user,
@@ -214,10 +246,12 @@ class BaserowService {
                     read: link.read,
                     isUnread: isUnread,
                     hasUrl: hasUrl,
-                    passes: isNotOwnPost && isUnread && hasUrl
+                    hasChannelAccess: hasChannelAccess,
+                    channel_id: link.channel_id,
+                    passes: isNotOwnPost && isUnread && hasUrl && hasChannelAccess
                 });
                 
-                return isNotOwnPost && isUnread && hasUrl;
+                return isNotOwnPost && isUnread && hasUrl && hasChannelAccess;
             });
 
             Logger.info(`Filtered to ${unreadLinks.length} unread links for ${username}`);
@@ -247,14 +281,29 @@ class BaserowService {
             Logger.info(`Found ${allLinks.length} total links across all guilds`);
             Logger.info(`Looking for unread links for user: ${username} (${userId})`);
             
-            // Get user's current server memberships
+            // Get user's current server memberships and channel access
             const userGuilds = new Set();
+            const userChannels = new Set();
             try {
                 for (const [guildId, guild] of discordClient.guilds.cache) {
                     const member = await guild.members.fetch(userId).catch(() => null);
                     if (member) {
                         userGuilds.add(guildId);
                         Logger.debug(`User ${username} is member of guild: ${guild.name} (${guildId})`);
+                        
+                        // Check channel access within this guild
+                        for (const [channelId, channel] of guild.channels.cache) {
+                            try {
+                                // Check if user has permission to view this channel
+                                const hasAccess = channel.permissionsFor(member)?.has('ViewChannel') ?? false;
+                                if (hasAccess) {
+                                    userChannels.add(channelId);
+                                    Logger.debug(`User ${username} has access to channel: ${channel.name} (${channelId}) in ${guild.name}`);
+                                }
+                            } catch (channelError) {
+                                Logger.debug(`Could not check channel access for ${channelId}:`, channelError.message);
+                            }
+                        }
                     }
                 }
             } catch (error) {
@@ -263,6 +312,7 @@ class BaserowService {
             }
             
             Logger.info(`User ${username} is member of ${userGuilds.size} guilds:`, Array.from(userGuilds));
+            Logger.info(`User ${username} has access to ${userChannels.size} channels:`, Array.from(userChannels));
             
             // Debug: Log all links to see their structure
             allLinks.forEach((link, index) => {
@@ -273,16 +323,19 @@ class BaserowService {
                     url: link.url,
                     message_id: link.message_id,
                     guild_id: link.guild_id,
-                    userHasAccess: userGuilds.has(link.guild_id)
+                    channel_id: link.channel_id,
+                    userHasGuildAccess: userGuilds.has(link.guild_id),
+                    userHasChannelAccess: userChannels.has(link.channel_id)
                 });
             });
             
-            // Filter for unread links not posted by the requesting user AND from servers they're members of
+            // Filter for unread links not posted by the requesting user AND from servers/channels they have access to
             const unreadLinks = allLinks.filter(link => {
                 const isNotOwnPost = link.user !== username;
                 const isUnread = link.read === false;
                 const hasUrl = !!link.url;
                 const hasGuildAccess = userGuilds.has(link.guild_id);
+                const hasChannelAccess = userChannels.has(link.channel_id);
                 
                 Logger.info(`Link filtering:`, {
                     user: link.user,
@@ -292,11 +345,13 @@ class BaserowService {
                     isUnread: isUnread,
                     hasUrl: hasUrl,
                     hasGuildAccess: hasGuildAccess,
+                    hasChannelAccess: hasChannelAccess,
                     guild_id: link.guild_id,
-                    passes: isNotOwnPost && isUnread && hasUrl && hasGuildAccess
+                    channel_id: link.channel_id,
+                    passes: isNotOwnPost && isUnread && hasUrl && hasGuildAccess && hasChannelAccess
                 });
                 
-                return isNotOwnPost && isUnread && hasUrl && hasGuildAccess;
+                return isNotOwnPost && isUnread && hasUrl && hasGuildAccess && hasChannelAccess;
             });
 
             Logger.info(`Filtered to ${unreadLinks.length} unread links for ${username} from accessible guilds`);
