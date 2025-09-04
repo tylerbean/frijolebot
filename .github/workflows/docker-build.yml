@@ -66,7 +66,7 @@ jobs:
       if: github.event_name != 'pull_request'
       uses: aquasecurity/trivy-action@master
       with:
-        image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+        image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:main
         format: 'sarif'
         output: 'trivy-results.sarif'
 
@@ -103,7 +103,7 @@ jobs:
       if: github.event_name != 'pull_request'
       uses: anchore/sbom-action@v0
       with:
-        image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+        image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:main
         format: spdx-json
         output-file: sbom.spdx.json
 
