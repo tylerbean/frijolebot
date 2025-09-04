@@ -187,13 +187,40 @@ class BaserowService {
 
             const allLinks = response.data.results;
             
+            Logger.debug(`Found ${allLinks.length} total links in guild ${guildId}`);
+            Logger.debug(`Looking for unread links for user: ${username}`);
+            
+            // Debug: Log all links to see their structure
+            allLinks.forEach((link, index) => {
+                Logger.debug(`Link ${index + 1}:`, {
+                    user: link.user,
+                    read: link.read,
+                    readType: typeof link.read,
+                    url: link.url,
+                    message_id: link.message_id
+                });
+            });
+            
             // Filter for unread links not posted by the requesting user
-            const unreadLinks = allLinks.filter(link => 
-                link.user !== username && 
-                link.read === false &&
-                link.url // Make sure URL exists
-            );
+            const unreadLinks = allLinks.filter(link => {
+                const isNotOwnPost = link.user !== username;
+                const isUnread = link.read === false;
+                const hasUrl = !!link.url;
+                
+                Logger.debug(`Link filtering:`, {
+                    user: link.user,
+                    username: username,
+                    isNotOwnPost: isNotOwnPost,
+                    read: link.read,
+                    isUnread: isUnread,
+                    hasUrl: hasUrl,
+                    passes: isNotOwnPost && isUnread && hasUrl
+                });
+                
+                return isNotOwnPost && isUnread && hasUrl;
+            });
 
+            Logger.debug(`Filtered to ${unreadLinks.length} unread links for ${username}`);
             return unreadLinks;
         } catch (error) {
             Logger.error('Error fetching unread links:', error.response?.data || error.message);

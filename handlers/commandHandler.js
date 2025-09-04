@@ -12,9 +12,17 @@ class CommandHandler {
         try {
             await interaction.deferReply({ flags: MessageFlags.Ephemeral });
             
-                    const username = interaction.user.username;
-        const guildId = interaction.guildId;
-        const unreadLinks = await this.baserowService.getUnreadLinksForUser(username, guildId);
+            const username = interaction.user.username;
+            const guildId = interaction.guildId;
+            
+            Logger.debug(`/unread command called by:`, {
+                username: username,
+                userId: interaction.user.id,
+                guildId: guildId,
+                guildName: interaction.guild?.name
+            });
+            
+            const unreadLinks = await this.baserowService.getUnreadLinksForUser(username, guildId);
             
             if (unreadLinks.length === 0) {
                 await interaction.editReply({
