@@ -15,7 +15,7 @@ class CommandHandler {
             const username = interaction.user.username;
             const guildId = interaction.guildId;
             
-            Logger.debug(`/unread command called by:`, {
+            Logger.info(`/unread command called by:`, {
                 username: username,
                 userId: interaction.user.id,
                 guildId: guildId,

@@ -187,12 +187,12 @@ class BaserowService {
 
             const allLinks = response.data.results;
             
-            Logger.debug(`Found ${allLinks.length} total links in guild ${guildId}`);
-            Logger.debug(`Looking for unread links for user: ${username}`);
+            Logger.info(`Found ${allLinks.length} total links in guild ${guildId}`);
+            Logger.info(`Looking for unread links for user: ${username}`);
             
             // Debug: Log all links to see their structure
             allLinks.forEach((link, index) => {
-                Logger.debug(`Link ${index + 1}:`, {
+                Logger.info(`Link ${index + 1}:`, {
                     user: link.user,
                     read: link.read,
                     readType: typeof link.read,
@@ -207,7 +207,7 @@ class BaserowService {
                 const isUnread = link.read === false;
                 const hasUrl = !!link.url;
                 
-                Logger.debug(`Link filtering:`, {
+                Logger.info(`Link filtering:`, {
                     user: link.user,
                     username: username,
                     isNotOwnPost: isNotOwnPost,
@@ -220,7 +220,7 @@ class BaserowService {
                 return isNotOwnPost && isUnread && hasUrl;
             });
 
-            Logger.debug(`Filtered to ${unreadLinks.length} unread links for ${username}`);
+            Logger.info(`Filtered to ${unreadLinks.length} unread links for ${username}`);
             return unreadLinks;
         } catch (error) {
             Logger.error('Error fetching unread links:', error.response?.data || error.message);
