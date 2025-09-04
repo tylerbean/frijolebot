@@ -152,6 +152,18 @@ process.on('SIGINT', () => {
     process.exit(0);
 });
 
+// Cleanup job for expired DM mappings (run every hour)
+setInterval(async () => {
+    try {
+        const cleanupCount = await baserowService.cleanupExpiredDMMappings();
+        if (cleanupCount > 0) {
+            Logger.info(`Cleanup job: Removed ${cleanupCount} expired DM mappings`);
+        }
+    } catch (error) {
+        Logger.error('Error in cleanup job:', error);
+    }
+}, 60 * 60 * 1000); // Run every hour
+
 // Start the bot
 client.login(config.discord.token).catch(error => {
     Logger.error('Failed to login:', error);

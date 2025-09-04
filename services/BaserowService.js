@@ -2,9 +2,11 @@ const axios = require('axios');
 const Logger = require('../utils/logger');
 
 class BaserowService {
-    constructor(apiToken, apiUrl) {
+    constructor(apiToken, apiUrl, dmMappingTableId = 43) {
         this.apiToken = apiToken;
         this.apiUrl = apiUrl;
+        this.dmMappingTableId = dmMappingTableId;
+        this.dmMappingApiUrl = apiUrl.replace(/table\/\d+/, `table/${dmMappingTableId}`);
         this.headers = {
             'Authorization': `Token ${this.apiToken}`,
             'Content-Type': 'application/json'
@@ -196,6 +198,170 @@ class BaserowService {
         } catch (error) {
             Logger.error('Error fetching unread links:', error.response?.data || error.message);
             return [];
+        }
+    }
+
+    /**
+     * Create a DM message mapping
+     * @param {string} dmMessageId - Discord DM message ID
+     * @param {string} emoji - Reaction emoji
+     * @param {string} originalMessageId - Original Discord message ID
+     * @param {string} guildId - Discord guild/server ID
+     * @param {string} userId - Discord user ID
+     * @returns {Promise<Object|null>} Created mapping object or null if failed
+     */
+    async createDMMapping(dmMessageId, emoji, originalMessageId, guildId, userId) {
+        try {
+            const now = new Date();
+            const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000); // 24 hours from now
+
+            const mappingData = {
+                dm_message_id: dmMessageId,
+                emoji: emoji,
+                original_message_id: originalMessageId,
+                guild_id: guildId,
+                user_id: userId,
+                created_at: now.toISOString(),
+                expires_at: expiresAt.toISOString()
+            };
+
+            Logger.debug('Creating DM mapping:', mappingData);
+
+            const response = await axios.post(`${this.dmMappingApiUrl}/?user_field_names=true`, mappingData, {
+                headers: this.headers
+            });
+
+            Logger.success('DM mapping created successfully:', response.data);
+            return response.data;
+        } catch (error) {
+            Logger.error('Error creating DM mapping:', error.response?.data || error.message);
+            return null;
+        }
+    }
+
+    /**
+     * Create a bulk DM mapping for checkmark reactions
+     * @param {string} dmMessageId - Discord DM message ID
+     * @param {Array<string>} messageIds - Array of original message IDs
+     * @param {string} guildId - Discord guild/server ID
+     * @param {string} userId - Discord user ID
+     * @returns {Promise<Object|null>} Created mapping object or null if failed
+     */
+    async createBulkDMMapping(dmMessageId, messageIds, guildId, userId) {
+        try {
+            const now = new Date();
+            const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000); // 24 hours from now
+
+            const mappingData = {
+                dm_message_id: dmMessageId,
+                emoji: '✅',
+                original_message_id: JSON.stringify(messageIds), // Store as JSON string
+                guild_id: guildId,
+                user_id: userId,
+                created_at: now.toISOString(),
+                expires_at: expiresAt.toISOString()
+            };
+
+            Logger.debug('Creating bulk DM mapping:', mappingData);
+
+            const response = await axios.post(`${this.dmMappingApiUrl}/?user_field_names=true`, mappingData, {
+                headers: this.headers
+            });
+
+            Logger.success('Bulk DM mapping created successfully:', response.data);
+            return response.data;
+        } catch (error) {
+            Logger.error('Error creating bulk DM mapping:', error.response?.data || error.message);
+            return null;
+        }
+    }
+
+    /**
+     * Find a DM mapping by DM message ID and emoji
+     * @param {string} dmMessageId - Discord DM message ID
+     * @param {string} emoji - Reaction emoji
+     * @returns {Promise<Object|null>} Mapping object or null if not found
+     */
+    async findDMMapping(dmMessageId, emoji) {
+        try {
+            const queryUrl = `${this.dmMappingApiUrl}/?user_field_names=true&filters={"filter_type":"AND","filters":[{"field":"dm_message_id","type":"equal","value":"${dmMessageId}"},{"field":"emoji","type":"equal","value":"${emoji}"}]}`;
+            
+            const response = await axios.get(queryUrl, {
+                headers: { 'Authorization': `Token ${this.apiToken}` }
+            });
+
+            const mappings = response.data.results;
+            if (mappings.length === 0) {
+                return null;
+            }
+
+            const mapping = mappings[0];
+            
+            // Check if mapping has expired
+            const expiresAt = new Date(mapping.expires_at);
+            if (expiresAt < new Date()) {
+                Logger.warning(`DM mapping expired for ${dmMessageId}-${emoji}, removing...`);
+                await this.deleteDMMapping(mapping.id);
+                return null;
+            }
+
+            return mapping;
+        } catch (error) {
+            Logger.error('Error finding DM mapping:', error.response?.data || error.message);
+            return null;
+        }
+    }
+
+    /**
+     * Delete a DM mapping by ID
+     * @param {number} mappingId - Baserow mapping ID
+     * @returns {Promise<boolean>} Success status
+     */
+    async deleteDMMapping(mappingId) {
+        try {
+            await axios.delete(`${this.dmMappingApiUrl}/${mappingId}/?user_field_names=true`, {
+                headers: this.headers
+            });
+
+            Logger.success(`Deleted DM mapping: ${mappingId}`);
+            return true;
+        } catch (error) {
+            Logger.error('Error deleting DM mapping:', error.response?.data || error.message);
+            return false;
+        }
+    }
+
+    /**
+     * Clean up expired DM mappings
+     * @returns {Promise<number>} Number of mappings cleaned up
+     */
+    async cleanupExpiredDMMappings() {
+        try {
+            const now = new Date().toISOString();
+            const queryUrl = `${this.dmMappingApiUrl}/?user_field_names=true&filters={"filter_type":"AND","filters":[{"field":"expires_at","type":"date_before","value":"${now}"}]}`;
+            
+            const response = await axios.get(queryUrl, {
+                headers: { 'Authorization': `Token ${this.apiToken}` }
+            });
+
+            const expiredMappings = response.data.results;
+            let cleanupCount = 0;
+
+            for (const mapping of expiredMappings) {
+                const success = await this.deleteDMMapping(mapping.id);
+                if (success) {
+                    cleanupCount++;
+                }
+            }
+
+            if (cleanupCount > 0) {
+                Logger.success(`Cleaned up ${cleanupCount} expired DM mappings`);
+            }
+
+            return cleanupCount;
+        } catch (error) {
+            Logger.error('Error cleaning up expired DM mappings:', error.response?.data || error.message);
+            return 0;
         }
     }
 }

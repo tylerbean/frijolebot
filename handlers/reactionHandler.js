@@ -4,7 +4,6 @@ class ReactionHandler {
     constructor(baserowService, config) {
         this.baserowService = baserowService;
         this.config = config;
-        this.dmMessageMap = new Map();
     }
 
     async handleReactionAdd(reaction, user) {
@@ -103,40 +102,41 @@ class ReactionHandler {
 
     async handleDMReaction(reaction, user) {
         Logger.debug(`DM reaction detected: ${reaction.emoji.name} on message ${reaction.message.id}`);
-        const key = `${reaction.message.id}-${reaction.emoji.name}`;
-        Logger.debug(`Looking for key: ${key}`);
-        Logger.debug(`dmMessageMap has ${this.dmMessageMap.size} entries`);
         
-        if (this.dmMessageMap.has(key)) {
-            const mapping = this.dmMessageMap.get(key);
-            Logger.debug(`Found mapping: ${key} -> ${JSON.stringify(mapping)}`);
+        // Find the mapping in the database
+        const mapping = await this.baserowService.findDMMapping(reaction.message.id, reaction.emoji.name);
+        
+        if (mapping) {
+            Logger.debug(`Found mapping: ${JSON.stringify(mapping)}`);
             
             // Handle checkmark for "mark all as read"
             if (reaction.emoji.name === '✅') {
-                const { messageIds, guildId } = mapping;
-                if (Array.isArray(messageIds)) {
-                    Logger.debug(`Bulk marking ${messageIds.length} links as read in guild: ${guildId}`);
-                    let successCount = 0;
-                    for (const id of messageIds) {
-                        const success = await this.baserowService.updateReadStatus(id, guildId, true);
-                        if (success) successCount++;
+                try {
+                    const messageIds = JSON.parse(mapping.original_message_id);
+                    if (Array.isArray(messageIds)) {
+                        Logger.debug(`Bulk marking ${messageIds.length} links as read in guild: ${mapping.guild_id}`);
+                        let successCount = 0;
+                        for (const id of messageIds) {
+                            const success = await this.baserowService.updateReadStatus(id, mapping.guild_id, true);
+                            if (success) successCount++;
+                        }
+                        Logger.success(`Marked ${successCount}/${messageIds.length} links as read via bulk action`);
                     }
-                    Logger.success(`Marked ${successCount}/${messageIds.length} links as read via bulk action`);
+                } catch (error) {
+                    Logger.error('Error parsing bulk message IDs:', error);
                 }
             } else {
                 // Handle individual numbered reactions
-                const { messageId, guildId } = mapping;
-                Logger.debug(`Attempting to mark single link as read: ${messageId} in guild: ${guildId}`);
-                const success = await this.baserowService.updateReadStatus(messageId, guildId, true);
+                Logger.debug(`Attempting to mark single link as read: ${mapping.original_message_id} in guild: ${mapping.guild_id}`);
+                const success = await this.baserowService.updateReadStatus(mapping.original_message_id, mapping.guild_id, true);
                 if (success) {
-                    Logger.success(`Marked link as read via DM reaction: ${messageId}`);
+                    Logger.success(`Marked link as read via DM reaction: ${mapping.original_message_id}`);
                 } else {
-                    Logger.error(`Failed to mark link as read: ${messageId}`);
+                    Logger.error(`Failed to mark link as read: ${mapping.original_message_id}`);
                 }
             }
         } else {
-            Logger.warning(`No mapping found for key: ${key}`);
-            Logger.debug(`Available keys:`, Array.from(this.dmMessageMap.keys()));
+            Logger.warning(`No mapping found for DM message ${reaction.message.id} with emoji ${reaction.emoji.name}`);
         }
     }
 
@@ -224,15 +224,6 @@ class ReactionHandler {
         }
     }
 
-    // Method to add DM message mapping (used by command handler)
-    addDMMessageMapping(dmMessageId, emoji, originalMessageId, guildId) {
-        this.dmMessageMap.set(`${dmMessageId}-${emoji}`, { messageId: originalMessageId, guildId: guildId });
-    }
-
-    // Method to add bulk mapping for checkmark
-    addBulkDMMapping(dmMessageId, messageIds, guildId) {
-        this.dmMessageMap.set(`${dmMessageId}-✅`, { messageIds: messageIds, guildId: guildId });
-    }
 }
 
 module.exports = ReactionHandler;

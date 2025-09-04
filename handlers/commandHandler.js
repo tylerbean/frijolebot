@@ -61,8 +61,14 @@ class CommandHandler {
                 const reactions = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟'];
                 for (let i = 0; i < Math.min(linksToShow.length, 10); i++) {
                     await dmMessage.react(reactions[i]);
-                    // Map reaction emoji to original message ID with guild_id
-                    this.reactionHandler.addDMMessageMapping(dmMessage.id, reactions[i], linksToShow[i].message_id, guildId);
+                    // Create database mapping for reaction emoji to original message ID
+                    await this.baserowService.createDMMapping(
+                        dmMessage.id, 
+                        reactions[i], 
+                        linksToShow[i].message_id, 
+                        guildId, 
+                        interaction.user.id
+                    );
                 }
                 
                 // If more than 10 links, add additional reactions for links 11-25
@@ -71,15 +77,26 @@ class CommandHandler {
                     for (let i = 10; i < Math.min(linksToShow.length, 25); i++) {
                         const reactionIndex = i - 10;
                         await dmMessage.react(additionalReactions[reactionIndex]);
-                        // Map reaction emoji to original message ID with guild_id
-                        this.reactionHandler.addDMMessageMapping(dmMessage.id, additionalReactions[reactionIndex], linksToShow[i].message_id, guildId);
+                        // Create database mapping for additional reactions
+                        await this.baserowService.createDMMapping(
+                            dmMessage.id, 
+                            additionalReactions[reactionIndex], 
+                            linksToShow[i].message_id, 
+                            guildId, 
+                            interaction.user.id
+                        );
                     }
                 }
                 
                 // Add checkmark reaction for "mark all as read" functionality
                 await dmMessage.react('✅');
-                // Map checkmark to all message IDs for bulk marking with guild_id
-                this.reactionHandler.addBulkDMMapping(dmMessage.id, linksToShow.map(link => link.message_id), guildId);
+                // Create bulk database mapping for checkmark
+                await this.baserowService.createBulkDMMapping(
+                    dmMessage.id, 
+                    linksToShow.map(link => link.message_id), 
+                    guildId, 
+                    interaction.user.id
+                );
                 
                 await interaction.editReply({
                     content: '📬 I\'ve sent you a DM with your unread links! React to mark them as read.',
