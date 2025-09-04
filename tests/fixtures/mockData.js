@@ -52,7 +52,7 @@ const mockDMMapping = {
   guild_id: '611026701299875853',
   user_id: '186917645944094720',
   created_at: '2025-01-15T10:30:00.000Z',
-  expires_at: '2025-01-16T10:30:00.000Z'
+  expires_at: '2026-01-16T10:30:00.000Z' // Set to future date to avoid expiration
 };
 
 const mockBulkDMMapping = {

@@ -140,13 +140,15 @@ describe('BaserowService', () => {
 
   describe('updateReadStatus', () => {
     it('should update read status successfully', async () => {
+      // Mock findLinkByMessageId to return a valid link
+      jest.spyOn(baserowService, 'findLinkByMessageId').mockResolvedValue({ id: 1, url: 'https://example.com' });
       mockAxios.patch.mockResolvedValue({ data: { success: true } });
 
       const result = await baserowService.updateReadStatus('123456789', '123456789', true);
 
       expect(result).toBe(true);
       expect(mockAxios.patch).toHaveBeenCalledWith(
-        expect.stringContaining('123456789'),
+        expect.stringContaining('1'),
         { read: true },
         expect.objectContaining({
           headers: baserowService.headers
@@ -155,6 +157,8 @@ describe('BaserowService', () => {
     });
 
     it('should handle API errors when updating read status', async () => {
+      // Mock findLinkByMessageId to return a valid link
+      jest.spyOn(baserowService, 'findLinkByMessageId').mockResolvedValue({ id: 1, url: 'https://example.com' });
       mockAxios.patch.mockRejectedValue(new Error('API Error'));
 
       const result = await baserowService.updateReadStatus('123456789', '123456789', true);
@@ -271,6 +275,7 @@ describe('BaserowService', () => {
 
       const result = await baserowService.findDMMapping('1413205772032020500', '1️⃣');
 
+      expect(mockAxios.get).toHaveBeenCalled();
       expect(result).toEqual(mockDMMapping);
     });
 

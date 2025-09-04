@@ -195,8 +195,8 @@ describe('CommandHandler', () => {
 
       await commandHandler.handleUnreadCommand(mockInteraction);
 
-      // Should create mappings for first 10 links (numbered reactions)
-      expect(mockBaserowService.createDMMapping).toHaveBeenCalledTimes(10);
+      // Should create mappings for all 15 links (10 numbered + 5 letter reactions)
+      expect(mockBaserowService.createDMMapping).toHaveBeenCalledTimes(15);
       
       // Should create mappings for links 11-15 (letter reactions)
       expect(mockBaserowService.createDMMapping).toHaveBeenCalledWith(
