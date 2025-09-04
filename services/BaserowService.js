@@ -546,6 +546,33 @@ class BaserowService {
             return 0;
         }
     }
+
+    /**
+     * Test Baserow API connection for health checks
+     * @returns {Promise<Object>} Connection test result
+     */
+    async testConnection() {
+        const startTime = Date.now();
+        try {
+            // Make a simple API call to test connectivity
+            const response = await axios.get(`${this.apiUrl}/?user_field_names=true&size=1`, {
+                headers: { 'Authorization': `Token ${this.apiToken}` },
+                timeout: 5000 // 5 second timeout
+            });
+
+            const responseTime = Date.now() - startTime;
+            
+            return {
+                success: true,
+                responseTime: responseTime,
+                status: response.status,
+                dataCount: response.data.results ? response.data.results.length : 0
+            };
+        } catch (error) {
+            const responseTime = Date.now() - startTime;
+            throw new Error(`Baserow API connection failed: ${error.message} (${responseTime}ms)`);
+        }
+    }
 }
 
 module.exports = BaserowService;

@@ -1,0 +1,116 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frijolebot
+  labels:
+    app: frijolebot
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: frijolebot
+  template:
+    metadata:
+      labels:
+        app: frijolebot
+    spec:
+      containers:
+      - name: frijolebot
+        image: frijolebot:latest
+        ports:
+        - containerPort: 3000
+          name: health
+        env:
+        - name: DISCORD_BOT_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: frijolebot-secrets
+              key: discord-bot-token
+        - name: DISCORD_GUILD_ID
+          valueFrom:
+            configMapKeyRef:
+              name: frijolebot-config
+              key: discord-guild-id
+        - name: DISCORD_CHANNELS_TO_MONITOR
+          valueFrom:
+            configMapKeyRef:
+              name: frijolebot-config
+              key: discord-channels
+        - name: BASEROW_API_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: frijolebot-secrets
+              key: baserow-api-token
+        - name: BASEROW_API_URL
+          valueFrom:
+            configMapKeyRef:
+              name: frijolebot-config
+              key: baserow-api-url
+        - name: HEALTH_CHECK_PORT
+          value: "3000"
+        - name: NODE_ENV
+          value: "production"
+        livenessProbe:
+          httpGet:
+            path: /health/live
+            port: 3000
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health/ready
+            port: 3000
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+        volumeMounts:
+        - name: logs
+          mountPath: /app/logs
+      volumes:
+      - name: logs
+        emptyDir: {}
+      restartPolicy: Always
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frijolebot-service
+  labels:
+    app: frijolebot
+spec:
+  selector:
+    app: frijolebot
+  ports:
+  - port: 3000
+    targetPort: 3000
+    name: health
+  type: ClusterIP
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: frijolebot-config
+data:
+  discord-guild-id: "YOUR_GUILD_ID"
+  discord-channels: "CHANNEL_ID_1,CHANNEL_ID_2"
+  baserow-api-url: "https://your-baserow-instance.com/api/database/table/123/"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: frijolebot-secrets
+type: Opaque
+data:
+  # Base64 encoded values
+  discord-bot-token: "YOUR_BASE64_ENCODED_DISCORD_TOKEN"
+  baserow-api-token: "YOUR_BASE64_ENCODED_BASEROW_TOKEN"

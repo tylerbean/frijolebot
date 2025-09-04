@@ -1,6 +1,7 @@
 const { Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes, Partials, MessageFlags } = require('discord.js');
 const config = require('./config');
 const BaserowService = require('./services/BaserowService');
+const HealthCheckService = require('./services/HealthCheckService');
 const MessageHandler = require('./handlers/messageHandler');
 const ReactionHandler = require('./handlers/reactionHandler');
 const CommandHandler = require('./handlers/commandHandler');
@@ -33,6 +34,7 @@ const client = new Client({
 const reactionHandler = new ReactionHandler(baserowService, config);
 const messageHandler = new MessageHandler(baserowService);
 let commandHandler; // Will be initialized after client is ready
+let healthCheckService; // Will be initialized after client is ready
 
 
 
@@ -69,6 +71,10 @@ client.once('clientReady', async () => {
     
     // Initialize CommandHandler with Discord client
     commandHandler = new CommandHandler(baserowService, reactionHandler, config, client);
+    
+    // Initialize and start health check service
+    healthCheckService = new HealthCheckService(client, baserowService, config);
+    healthCheckService.start();
     
     // Register slash commands
     await registerCommands();
@@ -159,6 +165,18 @@ process.on('unhandledRejection', (error) => {
 
 process.on('SIGINT', () => {
     Logger.startup('Shutting down bot...');
+    if (healthCheckService) {
+        healthCheckService.stop();
+    }
+    client.destroy();
+    process.exit(0);
+});
+
+process.on('SIGTERM', () => {
+    Logger.startup('Received SIGTERM, shutting down gracefully...');
+    if (healthCheckService) {
+        healthCheckService.stop();
+    }
     client.destroy();
     process.exit(0);
 });

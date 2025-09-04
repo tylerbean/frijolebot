@@ -35,5 +35,8 @@ module.exports = {
     },
     app: {
         nodeEnv: process.env.NODE_ENV || 'development'
+    },
+    health: {
+        port: process.env.HEALTH_CHECK_PORT || 3000
     }
 };

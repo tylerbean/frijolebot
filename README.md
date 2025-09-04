@@ -7,6 +7,10 @@ A Discord bot that monitors specified channels for messages containing URLs and 
 - **Multi-channel monitoring**: Configure multiple channels to monitor within a single Discord server
 - **URL detection**: Automatically detects HTTP/HTTPS URLs in messages
 - **Database storage**: Stores detected links in Baserow database with metadata
+- **DM link management**: Users can view and manage unread links via DM interactions
+- **Reaction-based interface**: Toggle read/unread status using Discord reactions
+- **Multi-server support**: Works across multiple Discord servers with proper access control
+- **Health monitoring**: Built-in health check endpoints for Kubernetes deployments
 - **Configurable**: Easy setup via environment variables
 - **Error handling**: Robust error handling and logging
 
@@ -102,9 +106,76 @@ The bot stores the following data in Baserow for each detected URL:
 }
 ```
 
+## Health Monitoring
+
+The bot includes built-in health check endpoints for monitoring and Kubernetes deployments:
+
+### Health Check Endpoints
+
+- **`GET /health/live`** - Liveness probe (process is alive)
+- **`GET /health/ready`** - Readiness probe (ready to serve requests)
+- **`GET /health`** - Combined health status with detailed information
+
+### Example Health Check Response
+
+```json
+{
+  "status": "healthy",
+  "timestamp": "2025-01-15T10:30:00.000Z",
+  "uptime": 3600000,
+  "uptime_human": "1h 0m",
+  "version": "1.0.0",
+  "node_version": "v18.17.0",
+  "checks": {
+    "discord": {
+      "connected": true,
+      "status": "connected",
+      "guilds": 2,
+      "user": "FrijoleBot#1234"
+    },
+    "baserow": {
+      "connected": true,
+      "status": "connected",
+      "response_time": 150,
+      "api_url": "https://your-baserow.com/api/database/table/123/"
+    },
+    "memory": {
+      "status": "ok",
+      "usage": {
+        "rss": 45,
+        "heapTotal": 20,
+        "heapUsed": 15,
+        "external": 5
+      },
+      "unit": "MB"
+    },
+    "uptime": {
+      "status": "ok",
+      "uptime": 3600000,
+      "uptime_human": "1h 0m"
+    }
+  },
+  "ready": true
+}
+```
+
+### Kubernetes Deployment
+
+See `k8s-deployment.yaml` for a complete Kubernetes deployment example with:
+- Liveness and readiness probes
+- Resource limits and requests
+- ConfigMap and Secret management
+- Health check service configuration
+
+### Environment Variables
+
+- **`HEALTH_CHECK_PORT`** - Port for health check server (default: 3000)
+
 ## Troubleshooting
 
 - **Bot not responding**: Check bot token and permissions
 - **Channel not monitored**: Verify channel ID in environment variables
 - **Database errors**: Check Baserow API token and URL configuration
 - **Missing messages**: Ensure bot has MESSAGE_CONTENT intent enabled
+- **Health check failures**: Check Discord API connectivity and Baserow API access
+- **Kubernetes probe failures**: Verify health check port is accessible and endpoints respond correctly
