@@ -26,7 +26,7 @@ describe('Config', () => {
       process.env.DISCORD_CHANNEL_TEST1 = '111111111';
       process.env.DISCORD_CHANNEL_TEST2 = '222222222';
       process.env.BASEROW_API_TOKEN = 'test-baserow-token';
-      process.env.BASEROW_API_URL = 'https://test-baserow.com/api/database/table/123/';
+      process.env.BASEROW_API_URL = 'https://test-baserow.com/api/database/table/';
       process.env.BASEROW_LINKS_TABLE_ID = '123';
       process.env.BASEROW_DM_MAPPING_TABLE_ID = '43';
       process.env.BASEROW_LINKS_TABLE_ID = '123';
@@ -46,7 +46,7 @@ describe('Config', () => {
         },
         baserow: {
           apiToken: 'test-baserow-token',
-          apiUrl: 'https://test-baserow.com/api/database/table/123/',
+          apiUrl: 'https://test-baserow.com/api/database/table/',
           linksTableId: '123',
           dmMappingTableId: '43'
         },
@@ -108,7 +108,7 @@ describe('Config', () => {
       process.env.DISCORD_GUILD_ID = '123456789';
       process.env.DISCORD_CHANNEL_TEST1 = '111111111';
       process.env.BASEROW_API_TOKEN = 'test-baserow-token';
-      process.env.BASEROW_API_URL = 'https://test-baserow.com/api/database/table/123/';
+      process.env.BASEROW_API_URL = 'https://test-baserow.com/api/database/table/';
       process.env.BASEROW_LINKS_TABLE_ID = '123';
       process.env.BASEROW_DM_MAPPING_TABLE_ID = '43';
       delete process.env.DISCORD_BOT_TOKEN;
@@ -122,7 +122,7 @@ describe('Config', () => {
       process.env.DISCORD_BOT_TOKEN = 'test-discord-token';
       process.env.DISCORD_CHANNEL_TEST1 = '111111111';
       process.env.BASEROW_API_TOKEN = 'test-baserow-token';
-      process.env.BASEROW_API_URL = 'https://test-baserow.com/api/database/table/123/';
+      process.env.BASEROW_API_URL = 'https://test-baserow.com/api/database/table/';
       process.env.BASEROW_LINKS_TABLE_ID = '123';
       process.env.BASEROW_DM_MAPPING_TABLE_ID = '43';
       delete process.env.DISCORD_GUILD_ID;
@@ -136,7 +136,7 @@ describe('Config', () => {
       process.env.DISCORD_BOT_TOKEN = 'test-discord-token';
       process.env.DISCORD_GUILD_ID = '123456789';
       process.env.BASEROW_API_TOKEN = 'test-baserow-token';
-      process.env.BASEROW_API_URL = 'https://test-baserow.com/api/database/table/123/';
+      process.env.BASEROW_API_URL = 'https://test-baserow.com/api/database/table/';
       process.env.BASEROW_LINKS_TABLE_ID = '123';
       process.env.BASEROW_DM_MAPPING_TABLE_ID = '43';
 
@@ -149,7 +149,7 @@ describe('Config', () => {
       process.env.DISCORD_BOT_TOKEN = 'test-discord-token';
       process.env.DISCORD_GUILD_ID = '123456789';
       process.env.DISCORD_CHANNEL_TEST1 = '111111111';
-      process.env.BASEROW_API_URL = 'https://test-baserow.com/api/database/table/123/';
+      process.env.BASEROW_API_URL = 'https://test-baserow.com/api/database/table/';
       delete process.env.BASEROW_API_TOKEN;
 
       expect(() => {
@@ -176,7 +176,7 @@ describe('Config', () => {
       process.env.DISCORD_GUILD_ID = '123456789';
       process.env.DISCORD_CHANNEL_EMPTY = '';
       process.env.BASEROW_API_TOKEN = 'test-baserow-token';
-      process.env.BASEROW_API_URL = 'https://test-baserow.com/api/database/table/123/';
+      process.env.BASEROW_API_URL = 'https://test-baserow.com/api/database/table/';
       process.env.BASEROW_LINKS_TABLE_ID = '123';
       process.env.BASEROW_DM_MAPPING_TABLE_ID = '43';
 
@@ -190,7 +190,7 @@ describe('Config', () => {
       process.env.DISCORD_GUILD_ID = '123456789';
       process.env.DISCORD_CHANNEL_WHITESPACE = '   ';
       process.env.BASEROW_API_TOKEN = 'test-baserow-token';
-      process.env.BASEROW_API_URL = 'https://test-baserow.com/api/database/table/123/';
+      process.env.BASEROW_API_URL = 'https://test-baserow.com/api/database/table/';
       process.env.BASEROW_LINKS_TABLE_ID = '123';
       process.env.BASEROW_DM_MAPPING_TABLE_ID = '43';
 
@@ -208,7 +208,7 @@ describe('Config', () => {
       process.env.DISCORD_CHANNEL_EMPTY = '';
       process.env.DISCORD_CHANNEL_VALID2 = '222222222';
       process.env.BASEROW_API_TOKEN = 'test-baserow-token';
-      process.env.BASEROW_API_URL = 'https://test-baserow.com/api/database/table/123/';
+      process.env.BASEROW_API_URL = 'https://test-baserow.com/api/database/table/';
       process.env.BASEROW_LINKS_TABLE_ID = '123';
       process.env.BASEROW_DM_MAPPING_TABLE_ID = '43';
 
@@ -224,7 +224,7 @@ describe('Config', () => {
       process.env.DISCORD_CHANNEL_WHITESPACE = '   ';
       process.env.DISCORD_CHANNEL_VALID2 = '222222222';
       process.env.BASEROW_API_TOKEN = 'test-baserow-token';
-      process.env.BASEROW_API_URL = 'https://test-baserow.com/api/database/table/123/';
+      process.env.BASEROW_API_URL = 'https://test-baserow.com/api/database/table/';
       process.env.BASEROW_LINKS_TABLE_ID = '123';
       process.env.BASEROW_DM_MAPPING_TABLE_ID = '43';
 

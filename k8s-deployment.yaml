@@ -127,7 +127,7 @@ data:
   discord-guild-id: "YOUR_GUILD_ID"
   discord-channel-general: "YOUR_GENERAL_CHANNEL_ID"
   discord-channel-links: "YOUR_LINKS_CHANNEL_ID"
-  baserow-api-url: "https://your-baserow-instance.com/api/database/table/123/"
+  baserow-api-url: "https://your-baserow-instance.com/api/database/table/"
   baserow-links-table-id: "123"
   baserow-dm-mapping-table-id: "43"
 ---

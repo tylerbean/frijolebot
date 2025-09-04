@@ -4,11 +4,10 @@ const Logger = require('../utils/logger');
 class BaserowService {
     constructor(apiToken, apiUrl, linksTableId, dmMappingTableId) {
         this.apiToken = apiToken;
-        this.linksApiUrl = apiUrl;
         this.linksTableId = linksTableId;
         this.dmMappingTableId = dmMappingTableId;
-        this.linksApiUrl = apiUrl.replace(/table\/\d+/, `table/${linksTableId}`);
-        this.dmMappingApiUrl = apiUrl.replace(/table\/\d+/, `table/${dmMappingTableId}`);
+        this.linksApiUrl = `${apiUrl}${linksTableId}/`;
+        this.dmMappingApiUrl = `${apiUrl}${dmMappingTableId}/`;
         this.headers = {
             'Authorization': `Token ${this.apiToken}`,
             'Content-Type': 'application/json'
