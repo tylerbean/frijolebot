@@ -27,7 +27,7 @@ class CommandHandler {
             // Create embed with unread links
             const embed = new EmbedBuilder()
                 .setTitle('📚 Unread Links')
-                .setDescription(`You have ${unreadLinks.length} unread link(s) shared by others:`)
+                .setDescription(`You have ${unreadLinks.length} unread link(s) shared by others:\n\n**React to mark as read, remove reaction to mark as unread**`)
                 .setColor(0x00AE86)
                 .setTimestamp();
 
@@ -99,7 +99,7 @@ class CommandHandler {
                 );
                 
                 await interaction.editReply({
-                    content: '📬 I\'ve sent you a DM with your unread links! React to mark them as read.',
+                    content: '📬 I\'ve sent you a DM with your unread links! React to mark as read, remove reaction to mark as unread.',
                     flags: MessageFlags.Ephemeral
                 });
                 

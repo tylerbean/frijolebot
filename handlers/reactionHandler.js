@@ -86,6 +86,12 @@ class ReactionHandler {
                 }
             }
             
+            // Handle DM reaction removal (for unread links command)
+            if (!reaction.message.guild) {
+                await this.handleDMReactionRemove(reaction, user);
+                return;
+            }
+            
             // Only process reactions in monitored channels
             if (!this.config.discord.channelsToMonitor.includes(reaction.message.channel.id)) return;
             if (reaction.emoji.name !== '✅') return;
@@ -137,6 +143,46 @@ class ReactionHandler {
             }
         } else {
             Logger.warning(`No mapping found for DM message ${reaction.message.id} with emoji ${reaction.emoji.name}`);
+        }
+    }
+
+    async handleDMReactionRemove(reaction, user) {
+        Logger.debug(`DM reaction removal detected: ${reaction.emoji.name} on message ${reaction.message.id}`);
+        
+        // Find the mapping in the database
+        const mapping = await this.baserowService.findDMMapping(reaction.message.id, reaction.emoji.name);
+        
+        if (mapping) {
+            Logger.debug(`Found mapping for removal: ${JSON.stringify(mapping)}`);
+            
+            // Handle checkmark for "mark all as unread"
+            if (reaction.emoji.name === '✅') {
+                try {
+                    const messageIds = JSON.parse(mapping.original_message_id);
+                    if (Array.isArray(messageIds)) {
+                        Logger.debug(`Bulk marking ${messageIds.length} links as unread in guild: ${mapping.guild_id}`);
+                        let successCount = 0;
+                        for (const id of messageIds) {
+                            const success = await this.baserowService.updateReadStatus(id, mapping.guild_id, false);
+                            if (success) successCount++;
+                        }
+                        Logger.success(`Marked ${successCount}/${messageIds.length} links as unread via bulk removal`);
+                    }
+                } catch (error) {
+                    Logger.error('Error parsing bulk message IDs for removal:', error);
+                }
+            } else {
+                // Handle individual numbered reactions
+                Logger.debug(`Attempting to mark single link as unread: ${mapping.original_message_id} in guild: ${mapping.guild_id}`);
+                const success = await this.baserowService.updateReadStatus(mapping.original_message_id, mapping.guild_id, false);
+                if (success) {
+                    Logger.success(`Marked link as unread via DM reaction removal: ${mapping.original_message_id}`);
+                } else {
+                    Logger.error(`Failed to mark link as unread: ${mapping.original_message_id}`);
+                }
+            }
+        } else {
+            Logger.warning(`No mapping found for DM message ${reaction.message.id} with emoji ${reaction.emoji.name} (removal)`);
         }
     }
 
