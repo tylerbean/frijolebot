@@ -38,18 +38,6 @@ This directory contains GitHub Actions workflows for automated CI/CD processes.
 - Docker build testing
 - Health check endpoint testing
 
-### 3. `security.yml` - Security Scanning
-
-**Triggers:**
-- Weekly schedule (Mondays at 9 AM UTC)
-- Push to `main` branch
-- Pull requests to `main`
-
-**Features:**
-- npm audit for dependency vulnerabilities
-- Trivy container security scanning
-- GitHub Security tab integration
-- Audit results artifact upload
 
 ## Setup Instructions
 
@@ -77,7 +65,6 @@ To enable automatic Docker image pushes:
 Ensure your repository has the following permissions:
 - Contents: Read
 - Packages: Write
-- Security events: Write
 
 ## Workflow Features
 
@@ -97,10 +84,8 @@ Images are automatically tagged based on:
 
 ### Security Features
 
-- **Trivy Scanning**: Container vulnerability scanning
 - **SBOM Generation**: Software Bill of Materials
-- **npm Audit**: Dependency vulnerability checking
-- **GitHub Security Tab**: Integration with GitHub's security features
+- **npm Audit**: Dependency vulnerability checking (in test workflow)
 
 ### Health Check Testing
 
@@ -125,7 +110,6 @@ This will:
 1. Build the Docker image
 2. Push to Docker Hub with tag `v1.0.0`
 3. Create a GitHub release
-4. Run security scans
 
 ### Pull Request Testing
 
@@ -135,12 +119,6 @@ Every pull request automatically:
 3. Tests Docker build
 4. Verifies health checks
 
-### Weekly Security Scan
-
-Every Monday, the security workflow:
-1. Checks for new vulnerabilities
-2. Scans the latest Docker image
-3. Updates GitHub Security tab
 
 ## Monitoring
 
@@ -151,12 +129,6 @@ Check workflow status in:
 - Pull request checks
 - Repository status badges
 
-### Security Alerts
-
-Security issues are reported in:
-- GitHub Security tab
-- Workflow artifacts
-- Pull request comments (if configured)
 
 ## Troubleshooting
 
