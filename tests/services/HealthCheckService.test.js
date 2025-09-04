@@ -26,7 +26,9 @@ describe('HealthCheckService', () => {
 
     // Mock HTTP server
     mockServer = {
-      listen: jest.fn(),
+      listen: jest.fn((port, callback) => {
+        if (callback) callback();
+      }),
       close: jest.fn()
     };
     
@@ -45,7 +47,7 @@ describe('HealthCheckService', () => {
       expect(healthCheckService.config).toBe(mockConfig);
       expect(healthCheckService.port).toBe(mockConfig.health.port);
       expect(healthCheckService.isReady).toBe(false);
-      expect(healthCheckService.startTime).toBeInstanceOf(Number);
+      expect(typeof healthCheckService.startTime).toBe('number');
     });
   });
 
@@ -81,7 +83,7 @@ describe('HealthCheckService', () => {
 
       expect(mockRes.writeHead).toHaveBeenCalledWith(200);
       expect(mockRes.end).toHaveBeenCalledWith(
-        expect.stringContaining('"status":"alive"')
+        expect.stringContaining('"status": "alive"')
       );
     });
   });
@@ -104,7 +106,7 @@ describe('HealthCheckService', () => {
 
       expect(mockRes.writeHead).toHaveBeenCalledWith(200);
       expect(mockRes.end).toHaveBeenCalledWith(
-        expect.stringContaining('"status":"ready"')
+        expect.stringContaining('"status": "ready"')
       );
     });
 
@@ -122,7 +124,7 @@ describe('HealthCheckService', () => {
 
       expect(mockRes.writeHead).toHaveBeenCalledWith(503);
       expect(mockRes.end).toHaveBeenCalledWith(
-        expect.stringContaining('"status":"not_ready"')
+        expect.stringContaining('"status": "not_ready"')
       );
     });
 
@@ -143,7 +145,7 @@ describe('HealthCheckService', () => {
 
       expect(mockRes.writeHead).toHaveBeenCalledWith(503);
       expect(mockRes.end).toHaveBeenCalledWith(
-        expect.stringContaining('"status":"not_ready"')
+        expect.stringContaining('"status": "not_ready"')
       );
     });
   });
@@ -166,7 +168,7 @@ describe('HealthCheckService', () => {
 
       expect(mockRes.writeHead).toHaveBeenCalledWith(200);
       expect(mockRes.end).toHaveBeenCalledWith(
-        expect.stringContaining('"status":"healthy"')
+        expect.stringContaining('"status": "healthy"')
       );
     });
 
@@ -184,7 +186,7 @@ describe('HealthCheckService', () => {
 
       expect(mockRes.writeHead).toHaveBeenCalledWith(503);
       expect(mockRes.end).toHaveBeenCalledWith(
-        expect.stringContaining('"status":"unhealthy"')
+        expect.stringContaining('"status": "unhealthy"')
       );
     });
   });

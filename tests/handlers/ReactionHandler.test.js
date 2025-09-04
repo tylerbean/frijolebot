@@ -38,7 +38,10 @@ describe('ReactionHandler', () => {
 
   describe('handleReactionAdd', () => {
     it('should handle reaction add in server channel', async () => {
+      mockReaction.emoji.name = '✅';
       mockReaction.message.guild = { id: '123456789' };
+      mockReaction.message.id = '123456789';
+      mockReaction.message.channel.id = '111111111'; // This channel is in the monitored channels
       mockBaserowService.updateReadStatusFromReaction.mockResolvedValue(true);
 
       await reactionHandler.handleReactionAdd(mockReaction, mockUser);
@@ -53,6 +56,8 @@ describe('ReactionHandler', () => {
 
     it('should handle reaction add in DM', async () => {
       mockReaction.message.guild = null;
+      mockReaction.message.id = '123456789';
+      mockReaction.emoji.name = '1️⃣'; // Ensure correct emoji name
       mockBaserowService.findDMMapping.mockResolvedValue(mockDMMapping);
       mockBaserowService.updateReadStatus.mockResolvedValue(true);
 
@@ -89,7 +94,10 @@ describe('ReactionHandler', () => {
 
   describe('handleReactionRemove', () => {
     it('should handle reaction remove in server channel', async () => {
+      mockReaction.emoji.name = '✅';
       mockReaction.message.guild = { id: '123456789' };
+      mockReaction.message.id = '123456789';
+      mockReaction.message.channel.id = '111111111'; // This channel is in the monitored channels
       mockBaserowService.updateReadStatusFromReaction.mockResolvedValue(true);
 
       await reactionHandler.handleReactionRemove(mockReaction, mockUser);
@@ -104,6 +112,8 @@ describe('ReactionHandler', () => {
 
     it('should handle reaction remove in DM', async () => {
       mockReaction.message.guild = null;
+      mockReaction.message.id = '123456789';
+      mockReaction.emoji.name = '1️⃣'; // Ensure correct emoji name
       mockBaserowService.findDMMapping.mockResolvedValue(mockDMMapping);
       mockBaserowService.updateReadStatus.mockResolvedValue(true);
 
@@ -132,6 +142,7 @@ describe('ReactionHandler', () => {
 
   describe('handleDMReaction', () => {
     it('should handle individual DM reaction', async () => {
+      mockReaction.emoji.name = '1️⃣'; // Ensure correct emoji name
       mockBaserowService.findDMMapping.mockResolvedValue(mockDMMapping);
       mockBaserowService.updateReadStatus.mockResolvedValue(true);
 
@@ -150,6 +161,7 @@ describe('ReactionHandler', () => {
         emoji: '✅',
         original_message_id: '["1413199319758012447", "987654321"]'
       };
+      mockReaction.emoji.name = '✅';
       mockBaserowService.findDMMapping.mockResolvedValue(bulkMapping);
       mockBaserowService.findLinkByMessageIdAllGuilds.mockResolvedValue(mockBaserowLink);
       mockBaserowService.updateReadStatus.mockResolvedValue(true);
@@ -171,6 +183,7 @@ describe('ReactionHandler', () => {
 
   describe('handleDMReactionRemove', () => {
     it('should handle individual DM reaction removal', async () => {
+      mockReaction.emoji.name = '1️⃣';
       mockBaserowService.findDMMapping.mockResolvedValue(mockDMMapping);
       mockBaserowService.updateReadStatus.mockResolvedValue(true);
 
@@ -189,6 +202,7 @@ describe('ReactionHandler', () => {
         emoji: '✅',
         original_message_id: '["1413199319758012447", "987654321"]'
       };
+      mockReaction.emoji.name = '✅';
       mockBaserowService.findDMMapping.mockResolvedValue(bulkMapping);
       mockBaserowService.findLinkByMessageIdAllGuilds.mockResolvedValue(mockBaserowLink);
       mockBaserowService.updateReadStatus.mockResolvedValue(true);
@@ -202,27 +216,39 @@ describe('ReactionHandler', () => {
 
   describe('handleDeletionReaction', () => {
     it('should handle deletion reaction for admin user', async () => {
-      mockReaction.emoji.name = '🗑️';
-      mockReaction.message.guild = { id: '123456789' };
+      mockReaction.emoji.name = '❌';
+      mockReaction.message.guild = { 
+        id: '123456789',
+        members: {
+          fetch: jest.fn().mockResolvedValue({ id: '987654321' })
+        }
+      };
+      mockReaction.message.id = 'message-123';
       mockBaserowService.deleteLink.mockResolvedValue(true);
 
       // Mock admin check
-      jest.spyOn(reactionHandler, 'isUserAdmin').mockReturnValue(true);
+      jest.spyOn(reactionHandler, 'isUserAdmin').mockResolvedValue(true);
 
       await reactionHandler.handleDeletionReaction(mockReaction, mockUser);
 
       expect(mockBaserowService.deleteLink).toHaveBeenCalledWith(
-        '123456789',
+        'message-123',
         '123456789'
       );
     });
 
     it('should not handle deletion reaction for non-admin user', async () => {
-      mockReaction.emoji.name = '🗑️';
-      mockReaction.message.guild = { id: '123456789' };
+      mockReaction.emoji.name = '❌';
+      mockReaction.message.guild = { 
+        id: '123456789',
+        members: {
+          fetch: jest.fn().mockResolvedValue({ id: '987654321' })
+        }
+      };
+      mockReaction.message.author.id = '999999999'; // Different from user.id to ensure not original poster
 
       // Mock non-admin check
-      jest.spyOn(reactionHandler, 'isUserAdmin').mockReturnValue(false);
+      jest.spyOn(reactionHandler, 'isUserAdmin').mockResolvedValue(false);
 
       await reactionHandler.handleDeletionReaction(mockReaction, mockUser);
 
@@ -231,40 +257,69 @@ describe('ReactionHandler', () => {
   });
 
   describe('isUserAdmin', () => {
-    it('should return true for admin user', () => {
-      const adminUser = { id: '123456789' };
-      const result = reactionHandler.isUserAdmin(adminUser);
+    it('should return true for admin user', async () => {
+      const adminUser = { 
+        id: '123456789',
+        user: { username: 'admin' },
+        permissions: {
+          has: jest.fn().mockReturnValue(true)
+        },
+        roles: {
+          cache: {
+            map: jest.fn().mockReturnValue(['Admin', 'Moderator']),
+            some: jest.fn().mockReturnValue(true)
+          }
+        }
+      };
+      const result = await reactionHandler.isUserAdmin(adminUser);
       expect(result).toBe(true);
     });
 
-    it('should return false for non-admin user', () => {
-      const regularUser = { id: '987654321' };
-      const result = reactionHandler.isUserAdmin(regularUser);
+    it('should return false for non-admin user', async () => {
+      const regularUser = { 
+        id: '987654321',
+        user: { username: 'user' },
+        permissions: {
+          has: jest.fn().mockReturnValue(false)
+        },
+        roles: {
+          cache: {
+            map: jest.fn().mockReturnValue(['Member']),
+            some: jest.fn().mockReturnValue(false)
+          }
+        }
+      };
+      const result = await reactionHandler.isUserAdmin(regularUser);
       expect(result).toBe(false);
     });
   });
 
   describe('error handling', () => {
     it('should handle BaserowService errors gracefully', async () => {
+      mockReaction.emoji.name = '✅';
+      mockReaction.message.guild = { id: '123456789' };
+      mockReaction.message.id = '123456789';
+      mockReaction.message.channel.id = '111111111';
       mockBaserowService.updateReadStatusFromReaction.mockRejectedValue(new Error('Service error'));
 
       await reactionHandler.handleReactionAdd(mockReaction, mockUser);
 
       expect(Logger.error).toHaveBeenCalledWith(
         'Error handling reaction:',
-        expect.any(Error)
+        'Service error'
       );
     });
 
     it('should handle DM reaction errors gracefully', async () => {
       mockReaction.message.guild = null;
+      mockReaction.message.id = '123456789';
       mockBaserowService.findDMMapping.mockRejectedValue(new Error('DM error'));
 
       await reactionHandler.handleReactionAdd(mockReaction, mockUser);
 
       expect(Logger.error).toHaveBeenCalledWith(
-        'Error handling DM reaction:',
-        expect.any(Error)
+        'Error handling reaction:',
+        'DM error'
       );
     });
   });

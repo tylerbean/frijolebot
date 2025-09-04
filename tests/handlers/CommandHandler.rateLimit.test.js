@@ -38,7 +38,8 @@ describe('CommandHandler - Rate Limiting', () => {
       resetLimit: jest.fn(),
       resetUserLimits: jest.fn(),
       getStats: jest.fn(),
-      destroy: jest.fn()
+      destroy: jest.fn(),
+      formatRetryTime: jest.fn()
     };
 
     // Mock RateLimiter constructor
@@ -54,6 +55,8 @@ describe('CommandHandler - Rate Limiting', () => {
       }
     };
 
+    jest.clearAllMocks();
+
     commandHandler = new CommandHandler(
       mockBaserowService,
       mockReactionHandler,
@@ -62,7 +65,6 @@ describe('CommandHandler - Rate Limiting', () => {
     );
 
     mockInteraction = { ...mockDiscordInteraction };
-    jest.clearAllMocks();
   });
 
   afterEach(() => {
@@ -87,6 +89,10 @@ describe('CommandHandler - Rate Limiting', () => {
   });
 
   describe('constructor with rate limiting disabled', () => {
+    beforeEach(() => {
+      jest.clearAllMocks();
+    });
+
     it('should not initialize rate limiter when disabled', () => {
       const configWithoutRateLimit = {
         ...mockConfig,
@@ -138,6 +144,7 @@ describe('CommandHandler - Rate Limiting', () => {
         resetTime: Date.now() + 30000,
         retryAfter: 30
       });
+      mockRateLimiter.formatRetryTime.mockReturnValue('30 seconds');
 
       const result = await commandHandler.checkRateLimit(mockInteraction, 'test');
       
