@@ -337,3 +337,4 @@ RATE_LIMIT_ENABLED=false
 - **Missing messages**: Ensure bot has MESSAGE_CONTENT intent enabled
 - **Health check failures**: Check Discord API connectivity and Baserow API access
 - **Kubernetes probe failures**: Verify health check port is accessible and endpoints respond correctly
+# Trigger new build
