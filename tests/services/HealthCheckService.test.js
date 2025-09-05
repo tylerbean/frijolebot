@@ -15,7 +15,9 @@ describe('HealthCheckService', () => {
 
   beforeEach(() => {
     mockBaserowService = {
-      testConnection: jest.fn()
+      testConnection: jest.fn(),
+      linksApiUrl: 'https://test-baserow.com/api/database/table/123/',
+      dmMappingApiUrl: 'https://test-baserow.com/api/database/table/456/'
     };
 
     healthCheckService = new HealthCheckService(
@@ -92,7 +94,11 @@ describe('HealthCheckService', () => {
     it('should return ready status when all checks pass', async () => {
       mockBaserowService.testConnection.mockResolvedValue({
         success: true,
-        responseTime: 100
+        responseTime: 100,
+        tables: {
+          links: { success: true, responseTime: 50, dataCount: 5 },
+          dmMapping: { success: true, responseTime: 50, dataCount: 2 }
+        }
       });
 
       const mockRes = {
@@ -154,7 +160,11 @@ describe('HealthCheckService', () => {
     it('should return healthy status when all checks pass', async () => {
       mockBaserowService.testConnection.mockResolvedValue({
         success: true,
-        responseTime: 100
+        responseTime: 100,
+        tables: {
+          links: { success: true, responseTime: 50, dataCount: 5 },
+          dmMapping: { success: true, responseTime: 50, dataCount: 2 }
+        }
       });
 
       const mockRes = {
@@ -238,7 +248,19 @@ describe('HealthCheckService', () => {
     it('should return connected status when Baserow is accessible', async () => {
       mockBaserowService.testConnection.mockResolvedValue({
         success: true,
-        responseTime: 150
+        responseTime: 150,
+        tables: {
+          links: {
+            success: true,
+            responseTime: 75,
+            dataCount: 5
+          },
+          dmMapping: {
+            success: true,
+            responseTime: 75,
+            dataCount: 2
+          }
+        }
       });
 
       const result = await healthCheckService.checkBaserowConnection();
@@ -247,7 +269,20 @@ describe('HealthCheckService', () => {
         connected: true,
         status: 'connected',
         response_time: 150,
-        api_url: mockConfig.baserow.apiUrl
+        tables: {
+          links: {
+            connected: true,
+            response_time: 75,
+            api_url: mockBaserowService.linksApiUrl,
+            data_count: 5
+          },
+          dmMapping: {
+            connected: true,
+            response_time: 75,
+            api_url: mockBaserowService.dmMappingApiUrl,
+            data_count: 2
+          }
+        }
       });
     });
 
@@ -260,7 +295,16 @@ describe('HealthCheckService', () => {
         connected: false,
         status: 'error',
         error: 'Connection failed',
-        api_url: mockConfig.baserow.apiUrl
+        tables: {
+          links: {
+            connected: false,
+            api_url: mockBaserowService.linksApiUrl
+          },
+          dmMapping: {
+            connected: false,
+            api_url: mockBaserowService.dmMappingApiUrl
+          }
+        }
       });
     });
   });

@@ -12,6 +12,14 @@ class BaserowService {
             'Authorization': `Token ${this.apiToken}`,
             'Content-Type': 'application/json'
         };
+        
+        // Debug logging for URL construction
+        Logger.info('BaserowService initialized:');
+        Logger.info(`  Base API URL: ${apiUrl}`);
+        Logger.info(`  Links Table ID: ${linksTableId}`);
+        Logger.info(`  DM Mapping Table ID: ${dmMappingTableId}`);
+        Logger.info(`  Links API URL: ${this.linksApiUrl}`);
+        Logger.info(`  DM Mapping API URL: ${this.dmMappingApiUrl}`);
     }
 
     /**
@@ -22,7 +30,7 @@ class BaserowService {
      */
     async findLinkByMessageId(messageId, guildId) {
         try {
-            const queryUrl = `${this.linksApiUrl}/?user_field_names=true&filters={"filter_type":"AND","filters":[{"field":"message_id","type":"equal","value":"${messageId}"},{"field":"guild_id","type":"equal","value":"${guildId}"}]}`;
+            const queryUrl = `${this.linksApiUrl}?user_field_names=true&filters={"filter_type":"AND","filters":[{"field":"message_id","type":"equal","value":"${messageId}"},{"field":"guild_id","type":"equal","value":"${guildId}"}]}`;
             
             const response = await axios.get(queryUrl, {
                 headers: { 'Authorization': `Token ${this.apiToken}` }
@@ -43,7 +51,7 @@ class BaserowService {
      */
     async findLinkByMessageIdAllGuilds(messageId) {
         try {
-            const queryUrl = `${this.linksApiUrl}/?user_field_names=true&filters={"filter_type":"AND","filters":[{"field":"message_id","type":"equal","value":"${messageId}"}]}`;
+            const queryUrl = `${this.linksApiUrl}?user_field_names=true&filters={"filter_type":"AND","filters":[{"field":"message_id","type":"equal","value":"${messageId}"}]}`;
             
             const response = await axios.get(queryUrl, {
                 headers: { 'Authorization': `Token ${this.apiToken}` }
@@ -81,7 +89,7 @@ class BaserowService {
 
             Logger.info('Storing link in Baserow:', linkData);
 
-            const response = await axios.post(`${this.linksApiUrl}/?user_field_names=true`, linkData, {
+            const response = await axios.post(`${this.linksApiUrl}?user_field_names=true`, linkData, {
                 headers: this.headers
             });
 
@@ -108,7 +116,7 @@ class BaserowService {
                 return false;
             }
 
-            await axios.patch(`${this.linksApiUrl}/${link.id}/?user_field_names=true`, {
+            await axios.patch(`${this.linksApiUrl}${link.id}/?user_field_names=true`, {
                 read: readStatus
             }, {
                 headers: this.headers
@@ -147,7 +155,7 @@ class BaserowService {
             if (link.user !== reactorUsername) {
                 Logger.success(`Reactor (${reactorUsername}) is different from original poster (${link.user}), updating read status`);
                 
-                await axios.patch(`${this.linksApiUrl}/${link.id}/?user_field_names=true`, {
+                await axios.patch(`${this.linksApiUrl}${link.id}/?user_field_names=true`, {
                     read: readStatus
                 }, {
                     headers: this.headers
@@ -183,7 +191,7 @@ class BaserowService {
                 return false;
             }
             
-            await axios.delete(`${this.linksApiUrl}/${link.id}/?user_field_names=true`, {
+            await axios.delete(`${this.linksApiUrl}${link.id}/?user_field_names=true`, {
                 headers: this.headers
             });
 
@@ -205,7 +213,7 @@ class BaserowService {
      */
     async getUnreadLinksForUser(username, guildId, userId, discordClient) {
         try {
-            const response = await axios.get(`${this.linksApiUrl}/?user_field_names=true&filters={"filter_type":"AND","filters":[{"field":"guild_id","type":"equal","value":"${guildId}"}]}`, {
+            const response = await axios.get(`${this.linksApiUrl}?user_field_names=true&filters={"filter_type":"AND","filters":[{"field":"guild_id","type":"equal","value":"${guildId}"}]}`, {
                 headers: { 'Authorization': `Token ${this.apiToken}` }
             });
 
@@ -294,7 +302,7 @@ class BaserowService {
     async getUnreadLinksForUserAllGuilds(username, userId, discordClient) {
         try {
             // Get all links without guild filter
-            const response = await axios.get(`${this.linksApiUrl}/?user_field_names=true`, {
+            const response = await axios.get(`${this.linksApiUrl}?user_field_names=true`, {
                 headers: { 'Authorization': `Token ${this.apiToken}` }
             });
 
@@ -410,7 +418,7 @@ class BaserowService {
 
             Logger.debug('Creating DM mapping:', mappingData);
 
-            const response = await axios.post(`${this.dmMappingApiUrl}/?user_field_names=true`, mappingData, {
+            const response = await axios.post(`${this.dmMappingApiUrl}?user_field_names=true`, mappingData, {
                 headers: this.headers
             });
 
@@ -447,7 +455,7 @@ class BaserowService {
 
             Logger.debug('Creating bulk DM mapping:', mappingData);
 
-            const response = await axios.post(`${this.dmMappingApiUrl}/?user_field_names=true`, mappingData, {
+            const response = await axios.post(`${this.dmMappingApiUrl}?user_field_names=true`, mappingData, {
                 headers: this.headers
             });
 
@@ -467,7 +475,7 @@ class BaserowService {
      */
     async findDMMapping(dmMessageId, emoji) {
         try {
-            const queryUrl = `${this.dmMappingApiUrl}/?user_field_names=true&filters={"filter_type":"AND","filters":[{"field":"dm_message_id","type":"equal","value":"${dmMessageId}"},{"field":"emoji","type":"equal","value":"${emoji}"}]}`;
+            const queryUrl = `${this.dmMappingApiUrl}?user_field_names=true&filters={"filter_type":"AND","filters":[{"field":"dm_message_id","type":"equal","value":"${dmMessageId}"},{"field":"emoji","type":"equal","value":"${emoji}"}]}`;
             
             const response = await axios.get(queryUrl, {
                 headers: { 'Authorization': `Token ${this.apiToken}` }
@@ -502,7 +510,7 @@ class BaserowService {
      */
     async deleteDMMapping(mappingId) {
         try {
-            await axios.delete(`${this.dmMappingApiUrl}/${mappingId}/?user_field_names=true`, {
+            await axios.delete(`${this.dmMappingApiUrl}${mappingId}/?user_field_names=true`, {
                 headers: this.headers
             });
 
@@ -521,7 +529,7 @@ class BaserowService {
     async cleanupExpiredDMMappings() {
         try {
             const now = new Date().toISOString();
-            const queryUrl = `${this.dmMappingApiUrl}/?user_field_names=true&filters={"filter_type":"AND","filters":[{"field":"expires_at","type":"date_before","value":"${now}"}]}`;
+            const queryUrl = `${this.dmMappingApiUrl}?user_field_names=true&filters={"filter_type":"AND","filters":[{"field":"expires_at","type":"date_before","value":"${now}"}]}`;
             
             const response = await axios.get(queryUrl, {
                 headers: { 'Authorization': `Token ${this.apiToken}` }
@@ -550,25 +558,76 @@ class BaserowService {
 
     /**
      * Test Baserow API connection for health checks
+     * Tests both links table and DM mapping table
      * @returns {Promise<Object>} Connection test result
      */
     async testConnection() {
         const startTime = Date.now();
-        try {
-            // Make a simple API call to test connectivity
-            const response = await axios.get(`${this.linksApiUrl}/?user_field_names=true&size=1`, {
-                headers: { 'Authorization': `Token ${this.apiToken}` },
-                timeout: 5000 // 5 second timeout
-            });
+        const results = {
+            success: true,
+            responseTime: 0,
+            tables: {
+                links: { success: false, error: null, responseTime: 0 },
+                dmMapping: { success: false, error: null, responseTime: 0 }
+            }
+        };
 
-            const responseTime = Date.now() - startTime;
-            
-            return {
-                success: true,
-                responseTime: responseTime,
-                status: response.status,
-                dataCount: response.data.results ? response.data.results.length : 0
-            };
+        try {
+            // Test links table
+            const linksStartTime = Date.now();
+            try {
+                const linksResponse = await axios.get(`${this.linksApiUrl}?user_field_names=true&size=1`, {
+                    headers: { 'Authorization': `Token ${this.apiToken}` },
+                    timeout: 5000
+                });
+                results.tables.links = {
+                    success: true,
+                    responseTime: Date.now() - linksStartTime,
+                    status: linksResponse.status,
+                    dataCount: linksResponse.data.results ? linksResponse.data.results.length : 0
+                };
+            } catch (error) {
+                results.tables.links = {
+                    success: false,
+                    error: error.message,
+                    responseTime: Date.now() - linksStartTime
+                };
+            }
+
+            // Test DM mapping table
+            const dmStartTime = Date.now();
+            try {
+                const dmResponse = await axios.get(`${this.dmMappingApiUrl}?user_field_names=true&size=1`, {
+                    headers: { 'Authorization': `Token ${this.apiToken}` },
+                    timeout: 5000
+                });
+                results.tables.dmMapping = {
+                    success: true,
+                    responseTime: Date.now() - dmStartTime,
+                    status: dmResponse.status,
+                    dataCount: dmResponse.data.results ? dmResponse.data.results.length : 0
+                };
+            } catch (error) {
+                results.tables.dmMapping = {
+                    success: false,
+                    error: error.message,
+                    responseTime: Date.now() - dmStartTime
+                };
+            }
+
+            // Overall success only if both tables are accessible
+            results.success = results.tables.links.success && results.tables.dmMapping.success;
+            results.responseTime = Date.now() - startTime;
+
+            if (!results.success) {
+                const failedTables = Object.entries(results.tables)
+                    .filter(([_, table]) => !table.success)
+                    .map(([name, table]) => `${name}: ${table.error}`)
+                    .join(', ');
+                throw new Error(`Baserow API connection failed for tables: ${failedTables} (${results.responseTime}ms)`);
+            }
+
+            return results;
         } catch (error) {
             const responseTime = Date.now() - startTime;
             throw new Error(`Baserow API connection failed: ${error.message} (${responseTime}ms)`);

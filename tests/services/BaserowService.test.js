@@ -314,18 +314,35 @@ describe('BaserowService', () => {
 
   describe('testConnection', () => {
     it('should test Baserow API connection successfully', async () => {
-      mockAxios.get.mockResolvedValue({
-        data: { results: [mockBaserowLink] },
-        status: 200
-      });
+      mockAxios.get
+        .mockResolvedValueOnce({
+          data: { results: [mockBaserowLink] },
+          status: 200
+        })
+        .mockResolvedValueOnce({
+          data: { results: [mockDMMapping] },
+          status: 200
+        });
 
       const result = await baserowService.testConnection();
 
       expect(result).toEqual({
         success: true,
         responseTime: expect.any(Number),
-        status: 200,
-        dataCount: 1
+        tables: {
+          links: {
+            success: true,
+            responseTime: expect.any(Number),
+            status: 200,
+            dataCount: 1
+          },
+          dmMapping: {
+            success: true,
+            responseTime: expect.any(Number),
+            status: 200,
+            dataCount: 1
+          }
+        }
       });
     });
 

@@ -219,6 +219,6 @@ client.login(config.discord.token).catch(error => {
             // Keep alive
         }, 1000);
     } else {
-        process.exit(1);
+    process.exit(1);
     }
 });

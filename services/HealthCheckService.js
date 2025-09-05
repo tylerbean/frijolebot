@@ -197,14 +197,36 @@ class HealthCheckService {
                 connected: true,
                 status: 'connected',
                 response_time: response.responseTime,
-                api_url: this.config.baserow.apiUrl
+                tables: {
+                    links: {
+                        connected: response.tables.links.success,
+                        response_time: response.tables.links.responseTime,
+                        api_url: this.baserowService.linksApiUrl,
+                        data_count: response.tables.links.dataCount || 0
+                    },
+                    dmMapping: {
+                        connected: response.tables.dmMapping.success,
+                        response_time: response.tables.dmMapping.responseTime,
+                        api_url: this.baserowService.dmMappingApiUrl,
+                        data_count: response.tables.dmMapping.dataCount || 0
+                    }
+                }
             };
         } catch (error) {
             return {
                 connected: false,
                 status: 'error',
                 error: error.message,
-                api_url: this.config.baserow.apiUrl
+                tables: {
+                    links: {
+                        connected: false,
+                        api_url: this.baserowService.linksApiUrl
+                    },
+                    dmMapping: {
+                        connected: false,
+                        api_url: this.baserowService.dmMappingApiUrl
+                    }
+                }
             };
         }
     }
