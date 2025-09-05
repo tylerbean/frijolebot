@@ -87,6 +87,8 @@ jobs:
           -e DISCORD_CHANNEL_TEST1=test \
           -e BASEROW_API_TOKEN=test \
           -e BASEROW_API_URL=test \
+          -e BASEROW_LINKS_TABLE_ID=test \
+          -e BASEROW_DM_MAPPING_TABLE_ID=test \
           -e NODE_ENV=test \
           -p 3000:3000 \
           ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:main
