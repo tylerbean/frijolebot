@@ -643,9 +643,10 @@ class BaserowService {
      * Store a WhatsApp message in Baserow
      * @param {Object} messageData - WhatsApp message data
      * @param {string} discordMessageId - Discord message ID where it was posted
+     * @param {string} discordGuildId - Discord Guild ID for multi-tenant support
      * @returns {Promise<Object|null>} Created message record or null if failed
      */
-    async storeWhatsAppMessage(messageData, discordMessageId) {
+    async storeWhatsAppMessage(messageData, discordMessageId, discordGuildId = null) {
         if (!this.whatsappMessagesApiUrl) {
             Logger.warning('WhatsApp messages table not configured');
             return null;
@@ -659,6 +660,7 @@ class BaserowService {
                 content: messageData.body || '',
                 message_type: messageData.type,
                 discord_message_id: discordMessageId,
+                discord_guild_id: discordGuildId,
                 created_at: new Date().toISOString()
             };
 
@@ -691,25 +693,62 @@ class BaserowService {
         }
 
         try {
+            // First, check if a session with this ID already exists
+            const existingResponse = await axios.get(`${this.whatsappSessionsApiUrl}?user_field_names=true&filters={"filter_type":"AND","filters":[{"field":"session_id","type":"equal","value":"${sessionId}"}]}`, {
+                headers: { 'Authorization': `Token ${this.apiToken}` }
+            });
+
+            const existingSessions = existingResponse.data.results || [];
+            
             const sessionRecord = {
                 session_id: sessionId,
                 session_data: sessionData,
                 status: status,
-                created_at: new Date().toISOString(),
                 last_used: new Date().toISOString(),
                 device_info: deviceInfo || '',
                 notes: ''
             };
 
-            Logger.info('Saving WhatsApp session to Baserow');
+            console.log('🔍 DEBUG: Attempting to save WhatsApp session to Baserow');
+            console.log('🔍 DEBUG: API URL:', this.whatsappSessionsApiUrl);
+            console.log('🔍 DEBUG: Session Record:', JSON.stringify(sessionRecord, null, 2));
+            console.log('🔍 DEBUG: Headers:', JSON.stringify(this.headers, null, 2));
 
-            const response = await axios.post(`${this.whatsappSessionsApiUrl}?user_field_names=true`, sessionRecord, {
-                headers: this.headers
-            });
+            let response;
+            if (existingSessions.length > 0) {
+                // Update existing session
+                const existingSession = existingSessions[0];
+                sessionRecord.created_at = existingSession.created_at; // Preserve original creation date
+                
+                console.log('🔍 DEBUG: Updating existing session:', existingSession.id);
+                Logger.info('Updating existing WhatsApp session in Baserow');
+                
+                response = await axios.patch(`${this.whatsappSessionsApiUrl}${existingSession.id}/?user_field_names=true`, sessionRecord, {
+                    headers: this.headers
+                });
+                
+                Logger.success('WhatsApp session updated successfully');
+            } else {
+                // Create new session
+                sessionRecord.created_at = new Date().toISOString();
+                
+                console.log('🔍 DEBUG: Creating new session');
+                Logger.info('Creating new WhatsApp session in Baserow');
+                
+                response = await axios.post(`${this.whatsappSessionsApiUrl}?user_field_names=true`, sessionRecord, {
+                    headers: this.headers
+                });
+                
+                Logger.success('WhatsApp session created successfully');
+            }
 
-            Logger.success('WhatsApp session saved successfully');
             return response.data;
         } catch (error) {
+            console.log('🔍 DEBUG: Error response from Baserow:');
+            console.log('🔍 DEBUG: Status:', error.response?.status);
+            console.log('🔍 DEBUG: Status Text:', error.response?.statusText);
+            console.log('🔍 DEBUG: Response Data:', JSON.stringify(error.response?.data, null, 2));
+            
             Logger.error('Error saving WhatsApp session to Baserow:', error.response?.data || error.message);
             return null;
         }
@@ -771,15 +810,103 @@ class BaserowService {
         }
 
         try {
-            const response = await axios.get(`${this.whatsappSessionsApiUrl}?user_field_names=true&filters={"filter_type":"AND","filters":[{"field":"status","type":"equal","value":"active"}]}`, {
+            // Get all sessions (not just active ones) to properly evaluate them
+            const response = await axios.get(`${this.whatsappSessionsApiUrl}?user_field_names=true`, {
                 headers: { 'Authorization': `Token ${this.apiToken}` }
             });
 
             const sessions = response.data.results || [];
-            return sessions.length > 0 ? sessions[0] : null;
+            if (sessions.length === 0) {
+                return null;
+            }
+
+            // Sort sessions by last_used date (most recent first)
+            const sortedSessions = sessions.sort((a, b) => {
+                const dateA = new Date(a.last_used || a.created_at || 0);
+                const dateB = new Date(b.last_used || b.created_at || 0);
+                return dateB - dateA;
+            });
+
+            // Find the most recent valid session
+            for (const session of sortedSessions) {
+                if (this.isSessionValid(session)) {
+                    Logger.debug(`Found valid session: ${session.session_id} (last used: ${session.last_used})`);
+                    return session;
+                }
+            }
+
+            // If no valid sessions found, clean up expired ones
+            await this.cleanupExpiredSessions(sessions);
+            return null;
+
         } catch (error) {
             Logger.error('Error getting active WhatsApp session:', error.response?.data || error.message);
             return null;
+        }
+    }
+
+    isSessionValid(session) {
+        try {
+            // Check if session has required fields
+            if (!session.session_id || !session.status) {
+                return false;
+            }
+
+            // Check if session is marked as active
+            if (session.status !== 'active' && session.status !== 'authenticated') {
+                return false;
+            }
+
+            // Check if session is not too old (24 hours max)
+            const lastUsed = new Date(session.last_used || session.created_at);
+            const now = new Date();
+            const hoursSinceLastUse = (now - lastUsed) / (1000 * 60 * 60);
+            
+            if (hoursSinceLastUse > 24) {
+                Logger.debug(`Session ${session.session_id} expired (${hoursSinceLastUse.toFixed(1)} hours old)`);
+                return false;
+            }
+
+            // Check if session data is valid (if it exists)
+            if (session.session_data) {
+                try {
+                    const sessionData = JSON.parse(session.session_data);
+                    // Add any additional validation for session data here
+                    if (sessionData.status === 'failed') {
+                        return false;
+                    }
+                } catch (e) {
+                    Logger.debug(`Session ${session.session_id} has invalid session_data`);
+                    return false;
+                }
+            }
+
+            return true;
+        } catch (error) {
+            Logger.error('Error validating session:', error);
+            return false;
+        }
+    }
+
+    async cleanupExpiredSessions(sessions) {
+        try {
+            const now = new Date();
+            const expiredSessions = sessions.filter(session => {
+                const lastUsed = new Date(session.last_used || session.created_at);
+                const hoursSinceLastUse = (now - lastUsed) / (1000 * 60 * 60);
+                return hoursSinceLastUse > 24 || session.status === 'failed';
+            });
+
+            for (const session of expiredSessions) {
+                await this.updateWhatsAppSessionStatus(session.session_id, 'expired', 'Auto-expired due to age or failure');
+                Logger.info(`Marked expired session as expired: ${session.session_id}`);
+            }
+
+            if (expiredSessions.length > 0) {
+                Logger.info(`Cleaned up ${expiredSessions.length} expired sessions`);
+            }
+        } catch (error) {
+            Logger.error('Error cleaning up expired sessions:', error);
         }
     }
 

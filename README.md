@@ -4,10 +4,11 @@
 [![Tests](https://github.com/tylerbean/frijolebot/actions/workflows/test.yml/badge.svg)](https://github.com/tylerbean/frijolebot/actions/workflows/test.yml)
 [![Security Scan](https://github.com/tylerbean/frijolebot/actions/workflows/security.yml/badge.svg)](https://github.com/tylerbean/frijolebot/actions/workflows/security.yml)
 
-A Discord bot that monitors specified channels for messages containing URLs and stores them in a Baserow database for link management and read status tracking.
+A Discord bot that monitors specified channels for messages containing URLs and stores them in a Baserow database for link management and read status tracking. Now includes WhatsApp integration for forwarding messages from WhatsApp chats to Discord channels.
 
 ## Features
 
+### Core Discord Features
 - **Multi-channel monitoring**: Configure multiple channels to monitor within a single Discord server
 - **URL detection**: Automatically detects HTTP/HTTPS URLs in messages
 - **Database storage**: Stores detected links in Baserow database with metadata
@@ -18,6 +19,15 @@ A Discord bot that monitors specified channels for messages containing URLs and 
 - **Health monitoring**: Built-in health check endpoints for Kubernetes deployments
 - **Configurable**: Easy setup via environment variables
 - **Error handling**: Robust error handling + logging
+
+### WhatsApp Integration (NEW!)
+- **WhatsApp Web connection**: Connect to personal WhatsApp accounts via WhatsApp Web API
+- **Message forwarding**: Forward messages from WhatsApp chats to Discord channels
+- **Media support**: Handle text messages, images, documents, and other media files
+- **Group chat support**: Monitor both individual and group WhatsApp conversations
+- **Session management**: Persistent session storage with Baserow backup
+- **QR code authentication**: Automatic QR code generation and Discord notifications
+- **Multi-tenant ready**: Support for multiple Discord servers with proper isolation
 
 ## Setup
 
@@ -49,10 +59,21 @@ Create a `.env` file with the following variables:
 DISCORD_BOT_TOKEN=your_bot_token_here
 DISCORD_GUILD_ID=your_guild_id_here
 DISCORD_CHANNELS_TO_MONITOR=channel_id_1,channel_id_2,channel_id_3
+DISCORD_ADMIN_CHANNEL=your_admin_channel_id_here
 
 # Baserow API Configuration
 BASEROW_API_TOKEN=your_baserow_api_token_here
 BASEROW_API_URL=https://your-baserow-instance.com/api/database/table/123/
+BASEROW_LINKS_TABLE_ID=your_links_table_id
+BASEROW_DM_MAPPING_TABLE_ID=your_dm_mapping_table_id
+
+# WhatsApp Integration (Optional)
+WHATSAPP_ENABLED=true
+WHATSAPP_SESSION_ENCRYPTION_KEY=your_32_character_encryption_key_here
+WHATSAPP_STORE_MESSAGES=true
+BASEROW_WHATSAPP_SESSIONS_TABLE_ID=your_sessions_table_id
+BASEROW_WHATSAPP_CHATS_TABLE_ID=your_chats_table_id
+BASEROW_WHATSAPP_MESSAGES_TABLE_ID=your_messages_table_id
 
 # Health Check Configuration
 HEALTH_CHECK_PORT=3000
@@ -74,7 +95,29 @@ NODE_ENV=production
 3. Select permissions: `Read Messages`, `Send Messages`, `Create Public Threads`, `Add Reactions`, `Manage Messages`
 4. Use generated URL to add bot to your server
 
-### 5. Run the Bot
+### 5. WhatsApp Integration Setup (Optional)
+
+If you want to enable WhatsApp integration:
+
+1. **Set up Baserow tables** for WhatsApp data:
+   - Create tables for sessions, chats, and messages
+   - Get the table IDs and add them to your `.env` file
+
+2. **Configure WhatsApp chats**:
+   - Add entries to the `whatsapp_chats` table for chats you want to monitor
+   - Use the correct WhatsApp chat ID format (see documentation below)
+
+3. **Generate encryption key**:
+   ```bash
+   # Generate a 32-character encryption key
+   openssl rand -hex 16
+   ```
+
+4. **Set up admin channel**:
+   - Create a Discord channel for QR codes and admin notifications
+   - Add the channel ID to `DISCORD_ADMIN_CHANNEL`
+
+### 6. Run the Bot
 
 ```bash
 # Production
@@ -164,6 +207,8 @@ docker-compose down
 - **Security**: Runs as non-root user
 - **Monitoring**: Exposes port 3000 for health check monitoring
 - **Logging**: Logs directory mounted for persistence
+- **WhatsApp Support**: Includes Chromium and system dependencies for WhatsApp Web
+- **Session Persistence**: WhatsApp session data persisted via Docker volumes
 
 ### Docker Environment Variables
 
@@ -329,6 +374,94 @@ RATE_LIMIT_MAX_REQUESTS=10
 RATE_LIMIT_ENABLED=false
 ```
 
+## WhatsApp Integration
+
+The bot includes comprehensive WhatsApp integration for forwarding messages from WhatsApp chats to Discord channels.
+
+### Features
+
+- **Message Forwarding**: Forward text and media messages from WhatsApp to Discord
+- **Group Chat Support**: Monitor both individual and group WhatsApp conversations
+- **Session Management**: Persistent session storage with automatic restoration
+- **QR Code Authentication**: Automatic QR code generation for WhatsApp Web authentication
+- **Media Handling**: Support for images, documents, and other media files
+- **Multi-tenant Ready**: Support for multiple Discord servers with proper isolation
+
+### Setup
+
+1. **Enable WhatsApp Integration**:
+   ```bash
+   WHATSAPP_ENABLED=true
+   WHATSAPP_SESSION_ENCRYPTION_KEY=your_32_character_key_here
+   ```
+
+2. **Configure Baserow Tables**:
+   - Create tables for WhatsApp sessions, chats, and messages
+   - Add table IDs to environment variables
+
+3. **Add Chat Configuration**:
+   - Add entries to the `whatsapp_chats` table for monitored chats
+   - Use correct WhatsApp chat ID format (see below)
+
+### Chat ID Formats
+
+- **Group Chats**: `{group-id}@g.us` (e.g., `120363404190647543@g.us`)
+- **Individual Chats**: `{phone-number}@c.us` (e.g., `12147991121@c.us`)
+
+### Docker Volume Mapping
+
+For WhatsApp session persistence in Docker, map the session directories:
+
+```bash
+docker run -d \
+  --name frijolebot \
+  --env-file .env \
+  -v frijolebot-whatsapp-sessions:/app/.wwebjs_auth \
+  -v frijolebot-whatsapp-cache:/app/.wwebjs_cache \
+  frijolebot
+```
+
+Or in `docker-compose.yml`:
+
+```yaml
+services:
+  frijolebot:
+    volumes:
+      - whatsapp-sessions:/app/.wwebjs_auth
+      - whatsapp-cache:/app/.wwebjs_cache
+
+volumes:
+  whatsapp-sessions:
+  whatsapp-cache:
+```
+
+### Authentication Flow
+
+1. **First Time Setup**:
+   - Start the bot with WhatsApp enabled
+   - Check Discord admin channel for QR code
+   - Scan QR code with WhatsApp mobile app
+   - Session is automatically saved
+
+2. **Session Restoration**:
+   - Bot automatically restores existing sessions
+   - If restoration fails, new QR code is generated
+
+### Message Formatting
+
+Messages are formatted as:
+- **Text**: `**Sender Name** *(timestamp)*\nMessage content`
+- **Media**: `**Sender Name** *(timestamp)*\n📎 Media type file`
+
+### Troubleshooting WhatsApp
+
+- **QR Code Not Appearing**: Check `DISCORD_ADMIN_CHANNEL` configuration
+- **Messages Not Forwarding**: Verify chat is in `whatsapp_chats` table with `is_active=true`
+- **Session Issues**: Clear local session files and restart bot
+- **Media Not Working**: Check Docker volume permissions and Chromium installation
+
+For detailed WhatsApp integration documentation, see [WHATSAPP_INTEGRATION.md](WHATSAPP_INTEGRATION.md).
+
 ## Troubleshooting
 
 - **Bot not responding**: Check bot token and permissions
@@ -337,3 +470,5 @@ RATE_LIMIT_ENABLED=false
 - **Missing messages**: Ensure bot has MESSAGE_CONTENT intent enabled
 - **Health check failures**: Check Discord API connectivity and Baserow API access
 - **Kubernetes probe failures**: Verify health check port is accessible and endpoints respond correctly
+- **WhatsApp QR code not appearing**: Check `DISCORD_ADMIN_CHANNEL` configuration and bot permissions
+- **WhatsApp messages not forwarding**: Verify chat configuration in Baserow `whatsapp_chats` table

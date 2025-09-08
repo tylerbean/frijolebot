@@ -88,15 +88,15 @@ client.once('clientReady', async () => {
     
     // Initialize WhatsApp service if enabled
     if (config.whatsapp.enabled) {
-        try {
-            whatsappService = new WhatsAppService(config);
-            await whatsappService.initialize();
-            Logger.success('WhatsApp service initialized successfully');
-        } catch (error) {
-            Logger.error('Failed to initialize WhatsApp service:', error);
-        }
+      try {
+        whatsappService = new WhatsAppService(config, client);
+        await whatsappService.initialize();
+        Logger.success('WhatsApp service initialized successfully');
+      } catch (error) {
+        Logger.error('Failed to initialize WhatsApp service:', error);
+      }
     } else {
-        Logger.info('WhatsApp service disabled');
+      Logger.info('WhatsApp service disabled');
     }
     
     // Register slash commands

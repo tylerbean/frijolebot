@@ -46,7 +46,8 @@ module.exports = {
     discord: {
         token: process.env.DISCORD_BOT_TOKEN,
         guildId: process.env.DISCORD_GUILD_ID,
-        channelsToMonitor: channelIds
+        channelsToMonitor: channelIds,
+        adminChannelId: process.env.DISCORD_ADMIN_CHANNEL
     },
     baserow: {
         apiToken: process.env.BASEROW_API_TOKEN,

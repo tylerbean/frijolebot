@@ -153,6 +153,11 @@ config.json
 bot-data/
 temp/
 
+# WhatsApp Web session data
+.wwebjs_auth/
+.wwebjs_cache/
+
+# Cursor IDE
 .cursor/
 .cursor/mcp.bak
 .cursor/mcp.json

@@ -33,6 +33,7 @@ jobs:
         node -c config/index.js
         node -c services/BaserowService.js
         node -c services/HealthCheckService.js
+        node -c services/WhatsAppService.js
         node -c handlers/commandHandler.js
         node -c handlers/messageHandler.js
         node -c handlers/reactionHandler.js
@@ -58,6 +59,11 @@ jobs:
           -e BASEROW_API_URL=test \
           -e BASEROW_LINKS_TABLE_ID=test \
           -e BASEROW_DM_MAPPING_TABLE_ID=test \
+          -e WHATSAPP_ENABLED=false \
+          -e WHATSAPP_SESSION_ENCRYPTION_KEY=test-encryption-key-32-characters \
+          -e BASEROW_WHATSAPP_SESSIONS_TABLE_ID=test \
+          -e BASEROW_WHATSAPP_CHATS_TABLE_ID=test \
+          -e BASEROW_WHATSAPP_MESSAGES_TABLE_ID=test \
           -e NODE_ENV=test \
           -e HEALTH_CHECK_PORT=3000 \
           -p 3000:3000 \

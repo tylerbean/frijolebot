@@ -42,13 +42,17 @@ describe('Config', () => {
         discord: {
           token: 'test-discord-token',
           guildId: '123456789',
-          channelsToMonitor: ['111111111', '222222222']
+          channelsToMonitor: ['111111111', '222222222'],
+          adminChannelId: undefined
         },
         baserow: {
           apiToken: 'test-baserow-token',
           apiUrl: 'https://test-baserow.com/api/database/table/',
           linksTableId: '123',
-          dmMappingTableId: '43'
+          dmMappingTableId: '43',
+          whatsappSessionsTableId: '45',
+          whatsappChatsTableId: '44',
+          whatsappMessagesTableId: '46'
         },
         app: {
           nodeEnv: 'test'
@@ -61,6 +65,11 @@ describe('Config', () => {
           windowMs: 60000,
           maxRequests: 5,
           cleanupInterval: 300000
+        },
+        whatsapp: {
+          enabled: true,
+          sessionEncryptionKey: 'test-encryption-key-32-characters',
+          storeMessages: false
         }
       });
     });
