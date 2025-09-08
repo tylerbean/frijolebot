@@ -2,6 +2,7 @@ const { Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes, Partials, 
 const config = require('./config');
 const BaserowService = require('./services/BaserowService');
 const HealthCheckService = require('./services/HealthCheckService');
+const WhatsAppService = require('./services/WhatsAppService');
 const MessageHandler = require('./handlers/messageHandler');
 const ReactionHandler = require('./handlers/reactionHandler');
 const CommandHandler = require('./handlers/commandHandler');
@@ -15,7 +16,10 @@ const baserowService = new BaserowService(
     config.baserow.apiToken, 
     config.baserow.apiUrl, 
     config.baserow.linksTableId, 
-    config.baserow.dmMappingTableId
+    config.baserow.dmMappingTableId,
+    config.baserow.whatsappSessionsTableId,
+    config.baserow.whatsappChatsTableId,
+    config.baserow.whatsappMessagesTableId
 );
 
 // Create Discord client
@@ -40,6 +44,7 @@ const reactionHandler = new ReactionHandler(baserowService, config);
 const messageHandler = new MessageHandler(baserowService);
 let commandHandler; // Will be initialized after client is ready
 let healthCheckService; // Will be initialized after client is ready
+let whatsappService; // Will be initialized after client is ready
 
 
 
@@ -80,6 +85,19 @@ client.once('clientReady', async () => {
     // Initialize and start health check service
     healthCheckService = new HealthCheckService(client, baserowService, config);
     healthCheckService.start();
+    
+    // Initialize WhatsApp service if enabled
+    if (config.whatsapp.enabled) {
+        try {
+            whatsappService = new WhatsAppService(config);
+            await whatsappService.initialize();
+            Logger.success('WhatsApp service initialized successfully');
+        } catch (error) {
+            Logger.error('Failed to initialize WhatsApp service:', error);
+        }
+    } else {
+        Logger.info('WhatsApp service disabled');
+    }
     
     // Register slash commands
     await registerCommands();
@@ -168,7 +186,7 @@ process.on('unhandledRejection', (error) => {
     Logger.error('Unhandled promise rejection:', error);
 });
 
-process.on('SIGINT', () => {
+process.on('SIGINT', async () => {
     Logger.startup('Shutting down bot...');
     if (healthCheckService) {
         healthCheckService.stop();
@@ -176,17 +194,23 @@ process.on('SIGINT', () => {
     if (commandHandler) {
         commandHandler.destroy();
     }
+    if (whatsappService) {
+        await whatsappService.destroy();
+    }
     client.destroy();
     process.exit(0);
 });
 
-process.on('SIGTERM', () => {
+process.on('SIGTERM', async () => {
     Logger.startup('Received SIGTERM, shutting down gracefully...');
     if (healthCheckService) {
         healthCheckService.stop();
     }
     if (commandHandler) {
         commandHandler.destroy();
+    }
+    if (whatsappService) {
+        await whatsappService.destroy();
     }
     client.destroy();
     process.exit(0);

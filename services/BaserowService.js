@@ -2,12 +2,20 @@ const axios = require('axios');
 const Logger = require('../utils/logger');
 
 class BaserowService {
-    constructor(apiToken, apiUrl, linksTableId, dmMappingTableId) {
+    constructor(apiToken, apiUrl, linksTableId, dmMappingTableId, whatsappSessionsTableId = null, whatsappChatsTableId = null, whatsappMessagesTableId = null) {
         this.apiToken = apiToken;
         this.linksTableId = linksTableId;
         this.dmMappingTableId = dmMappingTableId;
+        this.whatsappSessionsTableId = whatsappSessionsTableId;
+        this.whatsappChatsTableId = whatsappChatsTableId;
+        this.whatsappMessagesTableId = whatsappMessagesTableId;
+        
         this.linksApiUrl = `${apiUrl}${linksTableId}/`;
         this.dmMappingApiUrl = `${apiUrl}${dmMappingTableId}/`;
+        this.whatsappSessionsApiUrl = whatsappSessionsTableId ? `${apiUrl}${whatsappSessionsTableId}/` : null;
+        this.whatsappChatsApiUrl = whatsappChatsTableId ? `${apiUrl}${whatsappChatsTableId}/` : null;
+        this.whatsappMessagesApiUrl = whatsappMessagesTableId ? `${apiUrl}${whatsappMessagesTableId}/` : null;
+        
         this.headers = {
             'Authorization': `Token ${this.apiToken}`,
             'Content-Type': 'application/json'
@@ -18,8 +26,14 @@ class BaserowService {
         Logger.info(`  Base API URL: ${apiUrl}`);
         Logger.info(`  Links Table ID: ${linksTableId}`);
         Logger.info(`  DM Mapping Table ID: ${dmMappingTableId}`);
+        if (whatsappSessionsTableId) Logger.info(`  WhatsApp Sessions Table ID: ${whatsappSessionsTableId}`);
+        if (whatsappChatsTableId) Logger.info(`  WhatsApp Chats Table ID: ${whatsappChatsTableId}`);
+        if (whatsappMessagesTableId) Logger.info(`  WhatsApp Messages Table ID: ${whatsappMessagesTableId}`);
         Logger.info(`  Links API URL: ${this.linksApiUrl}`);
         Logger.info(`  DM Mapping API URL: ${this.dmMappingApiUrl}`);
+        if (this.whatsappSessionsApiUrl) Logger.info(`  WhatsApp Sessions API URL: ${this.whatsappSessionsApiUrl}`);
+        if (this.whatsappChatsApiUrl) Logger.info(`  WhatsApp Chats API URL: ${this.whatsappChatsApiUrl}`);
+        if (this.whatsappMessagesApiUrl) Logger.info(`  WhatsApp Messages API URL: ${this.whatsappMessagesApiUrl}`);
     }
 
     /**
@@ -553,6 +567,219 @@ class BaserowService {
         } catch (error) {
             Logger.error('Error cleaning up expired DM mappings:', error.response?.data || error.message);
             return 0;
+        }
+    }
+
+    // ===== WHATSAPP METHODS =====
+
+    /**
+     * Get active WhatsApp chats that should be monitored
+     * @returns {Promise<Array>} Array of active chat configurations
+     */
+    async getActiveChats() {
+        if (!this.whatsappChatsApiUrl) {
+            Logger.warning('WhatsApp chats table not configured');
+            return [];
+        }
+
+        try {
+            const response = await axios.get(`${this.whatsappChatsApiUrl}?user_field_names=true&filters={"filter_type":"AND","filters":[{"field":"is_active","type":"boolean","value":"true"}]}`, {
+                headers: { 'Authorization': `Token ${this.apiToken}` }
+            });
+
+            return response.data.results || [];
+        } catch (error) {
+            Logger.error('Error fetching active WhatsApp chats:', error.response?.data || error.message);
+            return [];
+        }
+    }
+
+    /**
+     * Check if a WhatsApp chat is being monitored
+     * @param {string} chatId - WhatsApp chat ID
+     * @returns {Promise<boolean>} True if chat is monitored
+     */
+    async isChatMonitored(chatId) {
+        if (!this.whatsappChatsApiUrl) {
+            return false;
+        }
+
+        try {
+            const response = await axios.get(`${this.whatsappChatsApiUrl}?user_field_names=true&filters={"filter_type":"AND","filters":[{"field":"chat_id","type":"equal","value":"${chatId}"},{"field":"is_active","type":"boolean","value":"true"}]}`, {
+                headers: { 'Authorization': `Token ${this.apiToken}` }
+            });
+
+            return response.data.results && response.data.results.length > 0;
+        } catch (error) {
+            Logger.error('Error checking if chat is monitored:', error.response?.data || error.message);
+            return false;
+        }
+    }
+
+    /**
+     * Get Discord channel ID for a WhatsApp chat
+     * @param {string} chatId - WhatsApp chat ID
+     * @returns {Promise<string|null>} Discord channel ID or null
+     */
+    async getDiscordChannelForChat(chatId) {
+        if (!this.whatsappChatsApiUrl) {
+            return null;
+        }
+
+        try {
+            const response = await axios.get(`${this.whatsappChatsApiUrl}?user_field_names=true&filters={"filter_type":"AND","filters":[{"field":"chat_id","type":"equal","value":"${chatId}"},{"field":"is_active","type":"boolean","value":"true"}]}`, {
+                headers: { 'Authorization': `Token ${this.apiToken}` }
+            });
+
+            const chats = response.data.results || [];
+            return chats.length > 0 ? chats[0].discord_channel_id : null;
+        } catch (error) {
+            Logger.error('Error getting Discord channel for chat:', error.response?.data || error.message);
+            return null;
+        }
+    }
+
+    /**
+     * Store a WhatsApp message in Baserow
+     * @param {Object} messageData - WhatsApp message data
+     * @param {string} discordMessageId - Discord message ID where it was posted
+     * @returns {Promise<Object|null>} Created message record or null if failed
+     */
+    async storeWhatsAppMessage(messageData, discordMessageId) {
+        if (!this.whatsappMessagesApiUrl) {
+            Logger.warning('WhatsApp messages table not configured');
+            return null;
+        }
+
+        try {
+            const messageRecord = {
+                message_id: messageData.id._serialized,
+                chat_id: messageData.from,
+                sender: messageData._data.notifyName || messageData.from,
+                content: messageData.body || '',
+                message_type: messageData.type,
+                discord_message_id: discordMessageId,
+                created_at: new Date().toISOString()
+            };
+
+            Logger.info('Storing WhatsApp message in Baserow:', messageRecord);
+
+            const response = await axios.post(`${this.whatsappMessagesApiUrl}?user_field_names=true`, messageRecord, {
+                headers: this.headers
+            });
+
+            Logger.success('WhatsApp message stored successfully:', response.data);
+            return response.data;
+        } catch (error) {
+            Logger.error('Error storing WhatsApp message in Baserow:', error.response?.data || error.message);
+            return null;
+        }
+    }
+
+    /**
+     * Save WhatsApp session data to Baserow
+     * @param {string} sessionId - Unique session identifier
+     * @param {string} sessionData - Encrypted session data
+     * @param {string} status - Session status (active, expired, needs_auth)
+     * @param {string} deviceInfo - Device fingerprint info
+     * @returns {Promise<Object|null>} Created session record or null if failed
+     */
+    async saveWhatsAppSession(sessionId, sessionData, status = 'active', deviceInfo = null) {
+        if (!this.whatsappSessionsApiUrl) {
+            Logger.warning('WhatsApp sessions table not configured');
+            return null;
+        }
+
+        try {
+            const sessionRecord = {
+                session_id: sessionId,
+                session_data: sessionData,
+                status: status,
+                created_at: new Date().toISOString(),
+                last_used: new Date().toISOString(),
+                device_info: deviceInfo || '',
+                notes: ''
+            };
+
+            Logger.info('Saving WhatsApp session to Baserow');
+
+            const response = await axios.post(`${this.whatsappSessionsApiUrl}?user_field_names=true`, sessionRecord, {
+                headers: this.headers
+            });
+
+            Logger.success('WhatsApp session saved successfully');
+            return response.data;
+        } catch (error) {
+            Logger.error('Error saving WhatsApp session to Baserow:', error.response?.data || error.message);
+            return null;
+        }
+    }
+
+    /**
+     * Update WhatsApp session status
+     * @param {string} sessionId - Session identifier
+     * @param {string} status - New status
+     * @param {string} notes - Optional notes
+     * @returns {Promise<boolean>} Success status
+     */
+    async updateWhatsAppSessionStatus(sessionId, status, notes = '') {
+        if (!this.whatsappSessionsApiUrl) {
+            return false;
+        }
+
+        try {
+            // Find the session first
+            const response = await axios.get(`${this.whatsappSessionsApiUrl}?user_field_names=true&filters={"filter_type":"AND","filters":[{"field":"session_id","type":"equal","value":"${sessionId}"}]}`, {
+                headers: { 'Authorization': `Token ${this.apiToken}` }
+            });
+
+            const sessions = response.data.results || [];
+            if (sessions.length === 0) {
+                Logger.warning(`No WhatsApp session found with ID: ${sessionId}`);
+                return false;
+            }
+
+            const session = sessions[0];
+            const updateData = {
+                status: status,
+                last_used: new Date().toISOString()
+            };
+
+            if (notes) {
+                updateData.notes = notes;
+            }
+
+            await axios.patch(`${this.whatsappSessionsApiUrl}${session.id}/?user_field_names=true`, updateData, {
+                headers: this.headers
+            });
+
+            Logger.success(`Updated WhatsApp session status to: ${status}`);
+            return true;
+        } catch (error) {
+            Logger.error('Error updating WhatsApp session status:', error.response?.data || error.message);
+            return false;
+        }
+    }
+
+    /**
+     * Get active WhatsApp session
+     * @returns {Promise<Object|null>} Active session or null
+     */
+    async getActiveWhatsAppSession() {
+        if (!this.whatsappSessionsApiUrl) {
+            return null;
+        }
+
+        try {
+            const response = await axios.get(`${this.whatsappSessionsApiUrl}?user_field_names=true&filters={"filter_type":"AND","filters":[{"field":"status","type":"equal","value":"active"}]}`, {
+                headers: { 'Authorization': `Token ${this.apiToken}` }
+            });
+
+            const sessions = response.data.results || [];
+            return sessions.length > 0 ? sessions[0] : null;
+        } catch (error) {
+            Logger.error('Error getting active WhatsApp session:', error.response?.data || error.message);
+            return null;
         }
     }
 
