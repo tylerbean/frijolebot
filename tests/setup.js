@@ -11,6 +11,14 @@ process.env.BASEROW_LINKS_TABLE_ID = '123';
 process.env.BASEROW_DM_MAPPING_TABLE_ID = '43';
 process.env.HEALTH_CHECK_PORT = '3001';
 
+// WhatsApp test environment variables
+process.env.WHATSAPP_ENABLED = 'true';
+process.env.WHATSAPP_SESSION_ENCRYPTION_KEY = 'test-encryption-key-32-characters';
+process.env.BASEROW_WHATSAPP_SESSIONS_TABLE_ID = '45';
+process.env.BASEROW_WHATSAPP_CHATS_TABLE_ID = '44';
+process.env.BASEROW_WHATSAPP_MESSAGES_TABLE_ID = '46';
+process.env.WHATSAPP_STORE_MESSAGES = 'false';
+
 // Mock console methods to reduce noise in tests
 global.console = {
   ...console,

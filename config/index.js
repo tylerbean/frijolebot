@@ -10,15 +10,26 @@ const requiredEnvVars = [
     'BASEROW_DM_MAPPING_TABLE_ID'
 ];
 
-// Optional WhatsApp environment variables
-const optionalEnvVars = [
+// WhatsApp environment variables (required if WhatsApp is enabled)
+const whatsappEnvVars = [
     'WHATSAPP_SESSION_ENCRYPTION_KEY',
-    'WHATSAPP_STORE_MESSAGES'
+    'BASEROW_WHATSAPP_SESSIONS_TABLE_ID',
+    'BASEROW_WHATSAPP_CHATS_TABLE_ID',
+    'BASEROW_WHATSAPP_MESSAGES_TABLE_ID'
 ];
 
+// Check for missing required environment variables
 const missingVars = requiredEnvVars.filter(varName => !process.env[varName]);
 if (missingVars.length > 0) {
     throw new Error(`Missing required environment variables: ${missingVars.join(', ')}`);
+}
+
+// Check for missing WhatsApp environment variables if WhatsApp is enabled
+if (process.env.WHATSAPP_ENABLED === 'true') {
+    const missingWhatsappVars = whatsappEnvVars.filter(varName => !process.env[varName]);
+    if (missingWhatsappVars.length > 0) {
+        throw new Error(`WhatsApp is enabled but missing required environment variables: ${missingWhatsappVars.join(', ')}`);
+    }
 }
 
 // Get all channel IDs from environment variables
@@ -42,9 +53,9 @@ module.exports = {
         apiUrl: process.env.BASEROW_API_URL,
         linksTableId: process.env.BASEROW_LINKS_TABLE_ID,
         dmMappingTableId: process.env.BASEROW_DM_MAPPING_TABLE_ID,
-        whatsappSessionsTableId: process.env.BASEROW_WHATSAPP_SESSIONS_TABLE_ID || '45',
-        whatsappChatsTableId: process.env.BASEROW_WHATSAPP_CHATS_TABLE_ID || '44',
-        whatsappMessagesTableId: process.env.BASEROW_WHATSAPP_MESSAGES_TABLE_ID || '46'
+        whatsappSessionsTableId: process.env.BASEROW_WHATSAPP_SESSIONS_TABLE_ID,
+        whatsappChatsTableId: process.env.BASEROW_WHATSAPP_CHATS_TABLE_ID,
+        whatsappMessagesTableId: process.env.BASEROW_WHATSAPP_MESSAGES_TABLE_ID
     },
     app: {
         nodeEnv: process.env.NODE_ENV || 'development'
@@ -59,7 +70,7 @@ module.exports = {
         enabled: process.env.RATE_LIMIT_ENABLED !== 'false' // Default to enabled
     },
     whatsapp: {
-        sessionEncryptionKey: process.env.WHATSAPP_SESSION_ENCRYPTION_KEY || 'default-key-change-in-production',
+        sessionEncryptionKey: process.env.WHATSAPP_SESSION_ENCRYPTION_KEY,
         storeMessages: process.env.WHATSAPP_STORE_MESSAGES === 'true',
         enabled: process.env.WHATSAPP_ENABLED === 'true'
     }

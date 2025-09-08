@@ -46,6 +46,11 @@ describe('WhatsAppService', () => {
                 whatsappSessionsTableId: '45',
                 whatsappChatsTableId: '44',
                 whatsappMessagesTableId: '46'
+            },
+            whatsapp: {
+                sessionEncryptionKey: 'test-encryption-key-32-characters',
+                storeMessages: false,
+                enabled: true
             }
         };
 
@@ -60,30 +65,28 @@ describe('WhatsAppService', () => {
     });
 
     describe('constructor', () => {
-        test('should initialize with default encryption key', () => {
+        test('should initialize with provided encryption key', () => {
             whatsappService = new WhatsAppService(mockConfig);
             
             expect(whatsappService.config).toBe(mockConfig);
             expect(whatsappService.client).toBeNull();
             expect(whatsappService.isConnected).toBe(false);
             expect(whatsappService.isInitialized).toBe(false);
-            expect(whatsappService.encryptionKey).toBe('default-key-change-in-production');
+            expect(whatsappService.encryptionKey).toBe('test-encryption-key-32-characters');
         });
 
-        test('should initialize with custom encryption key from environment', () => {
-            const originalKey = process.env.WHATSAPP_SESSION_ENCRYPTION_KEY;
-            process.env.WHATSAPP_SESSION_ENCRYPTION_KEY = 'custom-encryption-key';
+        test('should initialize with custom encryption key from config', () => {
+            const customConfig = {
+                ...mockConfig,
+                whatsapp: {
+                    ...mockConfig.whatsapp,
+                    sessionEncryptionKey: 'custom-encryption-key'
+                }
+            };
             
-            whatsappService = new WhatsAppService(mockConfig);
+            whatsappService = new WhatsAppService(customConfig);
             
             expect(whatsappService.encryptionKey).toBe('custom-encryption-key');
-            
-            // Restore original value
-            if (originalKey) {
-                process.env.WHATSAPP_SESSION_ENCRYPTION_KEY = originalKey;
-            } else {
-                delete process.env.WHATSAPP_SESSION_ENCRYPTION_KEY;
-            }
         });
     });
 

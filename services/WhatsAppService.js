@@ -12,7 +12,7 @@ class WhatsAppService {
     this.sessionManager = null;
     this.baserowService = null;
     this.messageHandler = null;
-    this.encryptionKey = process.env.WHATSAPP_SESSION_ENCRYPTION_KEY || 'default-key-change-in-production';
+    this.encryptionKey = config.whatsapp.sessionEncryptionKey;
     
     Logger.info('WhatsAppService initialized');
   }
