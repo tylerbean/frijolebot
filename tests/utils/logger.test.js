@@ -41,24 +41,36 @@ describe('Logger', () => {
   describe('Error logging behavior', () => {
     it('should always log error messages', () => {
       Logger.error('Test error message');
-      expect(consoleSpy.error).toHaveBeenCalledWith('❌ Test error message');
+      expect(consoleSpy.error).toHaveBeenCalledWith(
+        expect.stringMatching(/^❌ \[.*\] Test error message$/)
+      );
     });
 
     it('should handle error messages with multiple arguments', () => {
       Logger.error('Test error', { key: 'value' }, 123);
-      expect(consoleSpy.error).toHaveBeenCalledWith('❌ Test error', { key: 'value' }, 123);
+      expect(consoleSpy.error).toHaveBeenCalledWith(
+        expect.stringMatching(/^❌ \[.*\] Test error$/),
+        { key: 'value' },
+        123
+      );
     });
   });
 
   describe('Startup logging behavior', () => {
     it('should always log startup messages', () => {
       Logger.startup('Test startup message');
-      expect(consoleSpy.log).toHaveBeenCalledWith('🚀 Test startup message');
+      expect(consoleSpy.log).toHaveBeenCalledWith(
+        expect.stringMatching(/^🚀 \[.*\] Test startup message$/)
+      );
     });
 
     it('should handle startup messages with multiple arguments', () => {
       Logger.startup('Test startup', { key: 'value' }, 123);
-      expect(consoleSpy.log).toHaveBeenCalledWith('🚀 Test startup', { key: 'value' }, 123);
+      expect(consoleSpy.log).toHaveBeenCalledWith(
+        expect.stringMatching(/^🚀 \[.*\] Test startup$/),
+        { key: 'value' },
+        123
+      );
     });
   });
 
