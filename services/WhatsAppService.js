@@ -193,11 +193,11 @@ class WhatsAppService {
         if (isLoggedOut) {
           Logger.error('Logged out, restarting authentication process...');
           await this.sessionManager.handleAuthFailure('Logged out');
-          // Restart the authentication process
+          // Restart the authentication process with longer delay to allow cleanup
           setTimeout(() => {
             Logger.info('Restarting WhatsApp authentication...');
             this.initializeClient();
-          }, 2000); // Wait 2 seconds before restarting
+          }, 5000); // Wait 5 seconds before restarting to allow session cleanup
         } else if (isStreamError) {
           Logger.warning('Stream error detected (likely during QR scan) - attempting to reconnect...');
           Logger.info('This is expected behavior - WhatsApp may force disconnect to present authentication credentials');
@@ -503,6 +503,20 @@ class WhatsAppSessionManager {
       Logger.error('Authentication failed:', msg);
       await this.updateSessionStatus('failed');
       
+      // Properly destroy the socket first to release file handles
+      if (this.sock) {
+        try {
+          Logger.info('Destroying WhatsApp socket to release file handles...');
+          await this.sock.logout();
+          this.sock = null;
+        } catch (logoutError) {
+          Logger.warning('Error during socket logout:', logoutError.message);
+        }
+      }
+      
+      // Wait a moment for file handles to be released
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
       // Clear local session files to force fresh authentication
       await this.clearLocalSession();
       
@@ -516,11 +530,30 @@ class WhatsAppSessionManager {
     try {
       const sessionPath = path.join(process.cwd(), 'auth_info_baileys');
       if (fs.existsSync(sessionPath)) {
-        fs.rmSync(sessionPath, { recursive: true, force: true });
-        Logger.info('Cleared local WhatsApp session files');
+        // Try to clear the session directory with retries for EBUSY errors
+        let retries = 3;
+        while (retries > 0) {
+          try {
+            fs.rmSync(sessionPath, { recursive: true, force: true });
+            Logger.info('Cleared local WhatsApp session files');
+            return; // Success, exit the retry loop
+          } catch (rmError) {
+            if (rmError.code === 'EBUSY' && retries > 1) {
+              Logger.warning(`Session directory busy, retrying in 2 seconds... (${retries - 1} retries left)`);
+              await new Promise(resolve => setTimeout(resolve, 2000));
+              retries--;
+            } else {
+              throw rmError; // Re-throw if not EBUSY or no retries left
+            }
+          }
+        }
       }
     } catch (error) {
-      Logger.error('Failed to clear local session:', error);
+      if (error.code === 'EBUSY') {
+        Logger.warning('Session directory still busy after retries - will be cleared on next restart');
+      } else {
+        Logger.error('Failed to clear local session:', error);
+      }
     }
   }
 
