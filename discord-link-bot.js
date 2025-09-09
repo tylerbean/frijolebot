@@ -75,7 +75,6 @@ async function registerCommands() {
 }
 
 // Bot ready event
-Logger.info('Setting up ready event handler...');
 client.once('ready', async () => {
     Logger.success(`Bot logged in as ${client.user.tag}`);
     Logger.startup(`Monitoring ${config.discord.channelsToMonitor.length} channels in guild ${config.discord.guildId}`);
@@ -88,17 +87,13 @@ client.once('ready', async () => {
     healthCheckService.start();
     
     // Initialize WhatsApp service if enabled
-    Logger.info(`WhatsApp enabled: ${config.whatsapp.enabled}`);
     if (config.whatsapp.enabled) {
       try {
-        Logger.info('Creating WhatsApp service...');
         whatsappService = new WhatsAppService(config, client);
-        Logger.info('WhatsApp service created, initializing...');
         await whatsappService.initialize();
         Logger.success('WhatsApp service initialized successfully');
       } catch (error) {
         Logger.error('Failed to initialize WhatsApp service:', error);
-        Logger.error('Error details:', error.stack);
       }
     } else {
       Logger.info('WhatsApp service disabled');
@@ -234,7 +229,6 @@ setInterval(async () => {
 }, 60 * 60 * 1000); // Run every hour
 
 // Start the bot
-Logger.info('Attempting Discord login...');
 client.login(config.discord.token).catch(error => {
     Logger.error('Failed to login:', error);
     
