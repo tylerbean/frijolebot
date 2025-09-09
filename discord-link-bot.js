@@ -121,19 +121,20 @@ async function executeReadyLogic() {
     });
 }
 
-// Set up ready event handler
-Logger.info('Setting up ready event handler...');
-Logger.info(`Client ready status: ${client.isReady()}`);
+  // Set up ready event handler
+  Logger.info('Setting up ready event handler...');
+  Logger.info(`Client ready status: ${client.isReady()}`);
 
-if (client.isReady()) {
-    Logger.info('Client is already ready, executing ready logic immediately...');
-    await executeReadyLogic();
-} else {
-    client.once('ready', async () => {
-        Logger.info('Ready event fired!');
-        await executeReadyLogic();
-    });
-}
+  if (client.isReady()) {
+      Logger.info('Client is already ready, executing ready logic immediately...');
+      await executeReadyLogic();
+  } else {
+      // Use clientReady for Discord.js v14.22.1+ compatibility
+      client.once('clientReady', async () => {
+          Logger.info('ClientReady event fired!');
+          await executeReadyLogic();
+      });
+  }
 
 // Handle slash commands
 client.on('interactionCreate', async interaction => {
