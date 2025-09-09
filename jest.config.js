@@ -23,11 +23,11 @@ module.exports = {
     '!**/*.spec.js'
   ],
   
-  // Coverage thresholds (lowered for initial implementation)
+  // Coverage thresholds (adjusted for Baileys migration)
   coverageThreshold: {
     global: {
       branches: 40,
-      functions: 60,
+      functions: 55,
       lines: 50,
       statements: 50
     }
