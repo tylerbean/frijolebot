@@ -18,6 +18,8 @@ class WhatsAppService {
     this.messageHandler = null;
     this.encryptionKey = config.whatsapp.sessionEncryptionKey;
     this.baileys = null; // Will store dynamically imported Baileys functions
+    this.consecutiveAuthFailures = 0; // Track consecutive authentication failures
+    this.maxAuthFailures = 3; // Force clear session after 3 consecutive failures
     
     Logger.info('WhatsAppService initialized');
   }
@@ -178,6 +180,7 @@ class WhatsAppService {
         Logger.info('WhatsApp user info:', this.sock.user);
         Logger.info('Authentication completed successfully - device should now appear in WhatsApp');
         this.isConnected = true;
+        this.consecutiveAuthFailures = 0; // Reset failure counter on successful connection
         this.sessionManager.cancelSessionRestoreTimeout();
         await this.sessionManager.saveSession();
         await this.sessionManager.updateSessionStatus('active');
@@ -515,7 +518,9 @@ class WhatsAppSessionManager {
 
   async handleAuthFailure(msg) {
     try {
-      Logger.error('Authentication failed:', msg);
+      this.consecutiveAuthFailures++;
+      Logger.error(`Authentication failed (attempt ${this.consecutiveAuthFailures}/${this.maxAuthFailures}):`, msg);
+      
       await this.updateSessionStatus('failed');
       
       // Properly destroy the socket first to release file handles
@@ -532,10 +537,17 @@ class WhatsAppSessionManager {
       // Wait a moment for file handles to be released
       await new Promise(resolve => setTimeout(resolve, 1000));
       
-      // Clear local session files to force fresh authentication
-      await this.clearLocalSession();
+      // If we've had too many consecutive failures, force clear the session
+      if (this.consecutiveAuthFailures >= this.maxAuthFailures) {
+        Logger.warning(`Too many consecutive authentication failures (${this.consecutiveAuthFailures}), forcing session clear...`);
+        await this.forceClearSession();
+        this.consecutiveAuthFailures = 0; // Reset counter after force clear
+      } else {
+        // Clear local session files to force fresh authentication
+        await this.clearLocalSession();
+      }
       
-      await this.sendDiscordAlert('❌ **WhatsApp Authentication Failed**', `Authentication failed: ${msg}`);
+      await this.sendDiscordAlert('❌ **WhatsApp Authentication Failed**', `Authentication failed: ${msg} (attempt ${this.consecutiveAuthFailures}/${this.maxAuthFailures})`);
     } catch (error) {
       Logger.error('Failed to handle auth failure:', error);
     }
@@ -569,6 +581,50 @@ class WhatsAppSessionManager {
       } else {
         Logger.error('Failed to clear local session:', error);
       }
+    }
+  }
+
+  async forceClearSession() {
+    try {
+      Logger.warning('Force clearing corrupted WhatsApp session...');
+      
+      // First, try to clear the local session with more aggressive retries
+      const sessionPath = path.join(process.cwd(), 'auth_info_baileys');
+      if (fs.existsSync(sessionPath)) {
+        let retries = 10; // More retries for force clear
+        while (retries > 0) {
+          try {
+            fs.rmSync(sessionPath, { recursive: true, force: true });
+            Logger.info('Force cleared local WhatsApp session files');
+            break;
+          } catch (rmError) {
+            if (rmError.code === 'EBUSY' && retries > 1) {
+              Logger.warning(`Force clear: Session directory busy, retrying in 3 seconds... (${retries - 1} retries left)`);
+              await new Promise(resolve => setTimeout(resolve, 3000));
+              retries--;
+            } else {
+              Logger.error('Force clear failed:', rmError);
+              break;
+            }
+          }
+        }
+      }
+      
+      // Also clear any Baserow sessions to ensure clean state
+      try {
+        await this.sessionManager.updateSessionStatus('expired');
+        Logger.info('Marked all Baserow sessions as expired');
+      } catch (error) {
+        Logger.warning('Failed to clear Baserow sessions:', error.message);
+      }
+      
+      // Reset session manager state
+      this.sessionManager.currentSessionId = null;
+      
+      Logger.info('Force clear completed - next authentication will be fresh');
+      
+    } catch (error) {
+      Logger.error('Failed to force clear session:', error);
     }
   }
 
