@@ -668,7 +668,17 @@ class WhatsAppMessageHandler {
       // Format the message for Discord
       const isFromMe = message.key.fromMe || false;
       const senderName = isFromMe ? 'You' : (message.pushName || 'Unknown');
-      const timestamp = new Date(message.messageTimestamp * 1000).toLocaleString();
+      const timezone = process.env.TIMEZONE || 'UTC';
+      const timestamp = new Date(message.messageTimestamp * 1000).toLocaleString('en-US', { 
+        timeZone: timezone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: true
+      });
       
       // Handle different message types
       if (hasMedia) {
