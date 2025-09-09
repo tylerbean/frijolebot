@@ -87,13 +87,17 @@ client.once('clientReady', async () => {
     healthCheckService.start();
     
     // Initialize WhatsApp service if enabled
+    Logger.info(`WhatsApp enabled: ${config.whatsapp.enabled}`);
     if (config.whatsapp.enabled) {
       try {
+        Logger.info('Creating WhatsApp service...');
         whatsappService = new WhatsAppService(config, client);
+        Logger.info('WhatsApp service created, initializing...');
         await whatsappService.initialize();
         Logger.success('WhatsApp service initialized successfully');
       } catch (error) {
         Logger.error('Failed to initialize WhatsApp service:', error);
+        Logger.error('Error details:', error.stack);
       }
     } else {
       Logger.info('WhatsApp service disabled');
