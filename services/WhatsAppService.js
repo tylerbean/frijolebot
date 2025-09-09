@@ -210,7 +210,7 @@ class WhatsAppService {
         // Handle different disconnect scenarios
         if (isLoggedOut) {
           Logger.error('Logged out, restarting authentication process...');
-          await this.sessionManager.handleAuthFailure('Logged out');
+          await this.handleAuthFailure('Logged out');
           // Restart the authentication process with longer delay to allow cleanup
           setTimeout(() => {
             Logger.info('Restarting WhatsApp authentication...');
