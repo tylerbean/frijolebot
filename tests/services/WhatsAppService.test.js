@@ -309,13 +309,14 @@ describe('WhatsAppService', () => {
         test('should handle initialization errors gracefully', async () => {
             whatsappService = new WhatsAppService(mockConfig);
             
-            // Mock Baileys to throw an error
-            const baileys = require('@whiskeysockets/baileys');
-            baileys.default.mockImplementation(() => {
-                throw new Error('Socket creation failed');
-            });
+            // Mock the loadBaileys method to throw an error
+            const originalLoadBaileys = whatsappService.loadBaileys;
+            whatsappService.loadBaileys = jest.fn().mockRejectedValue(new Error('Socket creation failed'));
             
             await expect(whatsappService.initialize()).rejects.toThrow('Socket creation failed');
+            
+            // Restore the original method
+            whatsappService.loadBaileys = originalLoadBaileys;
         });
 
         test('should handle destroy when sock is null', async () => {
