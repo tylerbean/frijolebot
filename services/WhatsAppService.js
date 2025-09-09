@@ -1,4 +1,4 @@
-const { default: makeWASocket, DisconnectReason, useMultiFileAuthState, downloadMediaMessage, getContentType } = require('@whiskeysockets/baileys');
+// Baileys will be imported dynamically since it's an ES module
 const crypto = require('crypto-js');
 const fs = require('fs');
 const path = require('path');
@@ -17,13 +17,26 @@ class WhatsAppService {
     this.baserowService = null;
     this.messageHandler = null;
     this.encryptionKey = config.whatsapp.sessionEncryptionKey;
+    this.baileys = null; // Will store dynamically imported Baileys functions
     
     Logger.info('WhatsAppService initialized');
+  }
+
+  async loadBaileys() {
+    if (!this.baileys) {
+      Logger.info('Loading Baileys library...');
+      this.baileys = await import('@whiskeysockets/baileys');
+      Logger.info('Baileys library loaded successfully');
+    }
+    return this.baileys;
   }
 
   async initialize() {
     try {
       Logger.info('Initializing WhatsApp service...');
+      
+      // Load Baileys library first
+      await this.loadBaileys();
       
       // Initialize Baserow service for WhatsApp tables
       this.baserowService = new BaserowService(
@@ -87,6 +100,7 @@ class WhatsAppService {
       }
 
       // Initialize Baileys auth state
+      const { useMultiFileAuthState, makeWASocket } = this.baileys;
       const { state, saveCreds } = await useMultiFileAuthState('./auth_info_baileys');
       
       // Create WhatsApp socket with Baileys
@@ -175,6 +189,7 @@ class WhatsAppService {
         this.isConnected = false;
         await this.sessionManager.updateSessionStatus('disconnected');
         
+        const { DisconnectReason } = this.baileys;
         const disconnectCode = lastDisconnect?.error?.output?.statusCode;
         const isLoggedOut = disconnectCode === DisconnectReason.loggedOut;
         const isConnectionClosed = disconnectCode === DisconnectReason.connectionClosed;
@@ -724,6 +739,7 @@ class WhatsAppMessageHandler {
           let mimetype = 'application/octet-stream';
           
           // Get message type using Baileys getContentType
+          const { getContentType } = this.baileys;
           const messageType = getContentType(message.message);
           
           // Set filename and mimetype based on message type
@@ -744,6 +760,7 @@ class WhatsAppMessageHandler {
           
           try {
             // Use Baileys downloadMediaMessage with proper error handling
+            const { downloadMediaMessage } = this.baileys;
             const downloadOptions = {
               logger: Logger
             };

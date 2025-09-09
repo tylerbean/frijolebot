@@ -1,12 +1,15 @@
-const { Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes, Partials, MessageFlags } = require('discord.js');
-const config = require('./config');
-const BaserowService = require('./services/BaserowService');
-const HealthCheckService = require('./services/HealthCheckService');
-const WhatsAppService = require('./services/WhatsAppService');
-const MessageHandler = require('./handlers/messageHandler');
-const ReactionHandler = require('./handlers/reactionHandler');
-const CommandHandler = require('./handlers/commandHandler');
-const Logger = require('./utils/logger');
+// Main application entry point
+async function main() {
+  // Dynamic imports to handle ES module compatibility
+  const { Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes, Partials, MessageFlags } = await import('discord.js');
+  const config = require('./config');
+  const BaserowService = require('./services/BaserowService');
+  const HealthCheckService = require('./services/HealthCheckService');
+  const WhatsAppService = require('./services/WhatsAppService');
+  const MessageHandler = require('./handlers/messageHandler');
+  const ReactionHandler = require('./handlers/reactionHandler');
+  const CommandHandler = require('./handlers/commandHandler');
+  const Logger = require('./utils/logger');
 
 Logger.startup('Bot starting...');
 Logger.startup(`Monitoring ${config.discord.channelsToMonitor.length} channels`);
@@ -247,21 +250,28 @@ setInterval(async () => {
     }
 }, 60 * 60 * 1000); // Run every hour
 
-// Start the bot
-client.login(config.discord.token).catch(error => {
-    Logger.error('Failed to login:', error);
-    
-    // In test mode, start health check service even if Discord fails
-    if (config.app.nodeEnv === 'test') {
-        Logger.startup('Test mode: Starting health check service despite Discord auth failure');
-        healthCheckService = new HealthCheckService(null, baserowService, config);
-        healthCheckService.start();
-        
-        // Keep the process alive for health checks
-        setInterval(() => {
-            // Keep alive
-        }, 1000);
-    } else {
+  // Start the bot
+  client.login(config.discord.token).catch(error => {
+      Logger.error('Failed to login:', error);
+      
+      // In test mode, start health check service even if Discord fails
+      if (config.app.nodeEnv === 'test') {
+          Logger.startup('Test mode: Starting health check service despite Discord auth failure');
+          healthCheckService = new HealthCheckService(null, baserowService, config);
+          healthCheckService.start();
+          
+          // Keep the process alive for health checks
+          setInterval(() => {
+              // Keep alive
+          }, 1000);
+      } else {
+      process.exit(1);
+      }
+  });
+}
+
+// Start the application
+main().catch(error => {
+    console.error('Failed to start application:', error);
     process.exit(1);
-    }
 });
