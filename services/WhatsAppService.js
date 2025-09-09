@@ -210,9 +210,9 @@ class WhatsAppService {
         // Handle different disconnect scenarios
         if (isLoggedOut) {
           Logger.error('Logged out, restarting authentication process...');
-          Logger.debug('Debug - this.handleAuthFailure exists:', typeof this.handleAuthFailure);
-          Logger.debug('Debug - this object keys:', Object.keys(this));
-          await this.handleAuthFailure('Logged out');
+          // Use a bound reference to avoid context issues
+          const handleAuthFailure = this.handleAuthFailure.bind(this);
+          await handleAuthFailure('Logged out');
           // Restart the authentication process with longer delay to allow cleanup
           setTimeout(() => {
             Logger.info('Restarting WhatsApp authentication...');
