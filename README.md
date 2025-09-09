@@ -21,13 +21,14 @@ A Discord bot that monitors specified channels for messages containing URLs and 
 - **Error handling**: Robust error handling + logging
 
 ### WhatsApp Integration (NEW!)
-- **WhatsApp Web connection**: Connect to personal WhatsApp accounts via WhatsApp Web API
+- **WhatsApp Web connection**: Connect to personal WhatsApp accounts via Baileys library (no browser required!)
 - **Message forwarding**: Forward messages from WhatsApp chats to Discord channels
 - **Media support**: Handle text messages, images, documents, and other media files
 - **Group chat support**: Monitor both individual and group WhatsApp conversations
 - **Session management**: Persistent session storage with Baserow backup
 - **QR code authentication**: Automatic QR code generation and Discord notifications
 - **Multi-tenant ready**: Support for multiple Discord servers with proper isolation
+- **Lightweight**: No Chromium dependencies - uses pure Node.js WebSocket connections
 
 ## Setup
 
@@ -207,7 +208,7 @@ docker-compose down
 - **Security**: Runs as non-root user
 - **Monitoring**: Exposes port 3000 for health check monitoring
 - **Logging**: Logs directory mounted for persistence
-- **WhatsApp Support**: Includes Chromium and system dependencies for WhatsApp Web
+- **WhatsApp Support**: Lightweight Baileys integration (no browser required)
 - **Session Persistence**: WhatsApp session data persisted via Docker volumes
 
 ### Docker Environment Variables
@@ -376,7 +377,7 @@ RATE_LIMIT_ENABLED=false
 
 ## WhatsApp Integration
 
-The bot includes comprehensive WhatsApp integration for forwarding messages from WhatsApp chats to Discord channels.
+The bot includes comprehensive WhatsApp integration for forwarding messages from WhatsApp chats to Discord channels, powered by the Baileys library for reliable, browser-free operation.
 
 ### Features
 
@@ -386,6 +387,7 @@ The bot includes comprehensive WhatsApp integration for forwarding messages from
 - **QR Code Authentication**: Automatic QR code generation for WhatsApp Web authentication
 - **Media Handling**: Support for images, documents, and other media files
 - **Multi-tenant Ready**: Support for multiple Discord servers with proper isolation
+- **Lightweight**: No browser dependencies - uses pure Node.js WebSocket connections via Baileys
 
 ### Setup
 
