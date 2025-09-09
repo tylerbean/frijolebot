@@ -88,8 +88,22 @@ class WhatsAppService {
         auth: state,
         printQRInTerminal: false,
         logger: {
-          level: 'silent', // Disable Baileys internal logging
-          child: () => ({ level: 'silent' })
+          level: 'silent',
+          child: () => ({ 
+            level: 'silent',
+            trace: () => {},
+            debug: () => {},
+            info: () => {},
+            warn: () => {},
+            error: () => {},
+            fatal: () => {}
+          }),
+          trace: () => {},
+          debug: () => {},
+          info: () => {},
+          warn: () => {},
+          error: () => {},
+          fatal: () => {}
         }
       });
 
