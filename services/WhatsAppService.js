@@ -711,15 +711,20 @@ class WhatsAppMessageHandler {
           
           try {
             // Use Baileys downloadMediaMessage with proper error handling
+            const downloadOptions = {
+              logger: Logger
+            };
+            
+            // Add reupload request if the method exists
+            if (this.sock && typeof this.sock.updateMediaMessage === 'function') {
+              downloadOptions.reuploadRequest = this.sock.updateMediaMessage;
+            }
+            
             const stream = await downloadMediaMessage(
               message,
               'stream',
               {},
-              {
-                logger: Logger,
-                // Pass this so that Baileys can request a reupload of media that has been deleted
-                reuploadRequest: this.sock.updateMediaMessage
-              }
+              downloadOptions
             );
             
             const chunks = [];
@@ -730,29 +735,31 @@ class WhatsAppMessageHandler {
           } catch (downloadError) {
             Logger.warning(`Failed to download media: ${downloadError.message}`);
             
-            // If media download fails, try to request reupload
+            // If media download fails, try to request reupload (if supported)
             try {
-              Logger.info('Attempting to request media reupload...');
-              await this.sock.updateMediaMessage(message);
-              
-              // Wait a moment and try download again
-              await new Promise(resolve => setTimeout(resolve, 2000));
-              const retryStream = await downloadMediaMessage(
-                message,
-                'stream',
-                {},
-                {
-                  logger: Logger,
-                  reuploadRequest: this.sock.updateMediaMessage
+              if (this.sock && typeof this.sock.updateMediaMessage === 'function') {
+                Logger.info('Attempting to request media reupload...');
+                await this.sock.updateMediaMessage(message);
+                
+                // Wait a moment and try download again
+                await new Promise(resolve => setTimeout(resolve, 2000));
+                const retryStream = await downloadMediaMessage(
+                  message,
+                  'stream',
+                  {},
+                  downloadOptions
+                );
+                
+                const retryChunks = [];
+                for await (const chunk of retryStream) {
+                  retryChunks.push(chunk);
                 }
-              );
-              
-              const retryChunks = [];
-              for await (const chunk of retryStream) {
-                retryChunks.push(chunk);
+                mediaBuffer = Buffer.concat(retryChunks);
+                Logger.success('Media reupload successful');
+              } else {
+                Logger.warning('Media reupload not supported by this Baileys version');
+                throw new Error('Media reupload not supported');
               }
-              mediaBuffer = Buffer.concat(retryChunks);
-              Logger.success('Media reupload successful');
             } catch (reuploadError) {
               Logger.error(`Media reupload failed: ${reuploadError.message}`);
               throw new Error(`Media download failed: ${downloadError.message}`);
