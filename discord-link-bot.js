@@ -251,7 +251,7 @@ setInterval(async () => {
     }
 }, 60 * 60 * 1000); // Run every hour
 
-  // Start the bot
+// Start the bot
   client.login(config.discord.token).catch(error => {
       Logger.error('Failed to login:', error);
       
