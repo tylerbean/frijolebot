@@ -76,7 +76,20 @@ async function registerCommands() {
 
 // Bot ready event
 Logger.info('Setting up ready event handler...');
-client.once('ready', async () => {
+Logger.info(`Client ready status: ${client.isReady()}`);
+
+if (client.isReady()) {
+    Logger.info('Client is already ready, executing ready logic immediately...');
+    await executeReadyLogic();
+} else {
+    client.once('ready', async () => {
+        Logger.info('Ready event fired!');
+        await executeReadyLogic();
+    });
+}
+
+async function executeReadyLogic() {
+    Logger.info('Ready event fired!');
     Logger.success(`Bot logged in as ${client.user.tag}`);
     Logger.startup(`Monitoring ${config.discord.channelsToMonitor.length} channels in guild ${config.discord.guildId}`);
     
@@ -116,7 +129,7 @@ client.once('ready', async () => {
             Logger.warning(`Channel ${channelId} not found or not accessible`);
         }
     });
-});
+}
 
 // Handle slash commands
 client.on('interactionCreate', async interaction => {
