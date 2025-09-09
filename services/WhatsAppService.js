@@ -73,6 +73,9 @@ class WhatsAppService {
 
   async initializeClient() {
     try {
+      // Reset QR code sent flag for fresh authentication
+      this.sessionManager.qrCodeSent = false;
+      
       // Check if we have local session files
       const hasLocalSession = await this.sessionManager.hasLocalSession();
       Logger.info(`Local session check result: ${hasLocalSession}`);
@@ -191,6 +194,7 @@ class WhatsAppService {
         this.isConnected = true;
         this.consecutiveAuthFailures = 0; // Reset failure counter on successful connection
         this.totalRestartAttempts = 0; // Reset restart counter on successful connection
+        this.sessionManager.qrCodeSent = false; // Reset QR code sent flag on successful connection
         this.sessionManager.cancelSessionRestoreTimeout();
         await this.sessionManager.saveSession();
         await this.sessionManager.updateSessionStatus('active');
@@ -489,9 +493,11 @@ class WhatsAppSessionManager {
         return;
       }
       
-      // Send QR code to Discord if we don't have an existing session or if we've already sent one
-      if (this.discordClient && this.config.discord.adminChannelId) {
+      // Send QR code to Discord if we don't have an existing session and haven't sent one yet
+      if (!this.hasExistingSession && !this.qrCodeSent && this.discordClient && this.config.discord.adminChannelId) {
         await this.sendQRCodeToDiscord(qr);
+      } else if (this.qrCodeSent) {
+        Logger.info('QR code already sent to Discord, skipping duplicate');
       } else {
         Logger.warning('Discord client or admin channel not configured, QR code not sent to Discord');
       }
