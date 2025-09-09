@@ -1,4 +1,4 @@
-const { default: makeWASocket, DisconnectReason, useMultiFileAuthState, downloadContentFromMessage } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, DisconnectReason, useMultiFileAuthState, downloadMediaMessage, getContentType } = require('@whiskeysockets/baileys');
 const crypto = require('crypto-js');
 const fs = require('fs');
 const path = require('path');
@@ -686,47 +686,78 @@ class WhatsAppMessageHandler {
         try {
           Logger.info('Downloading media from WhatsApp message...');
           
-          let mediaType = 'image';
           let mediaBuffer;
           let filename = 'media';
           let mimetype = 'application/octet-stream';
           
-          let mediaMessage = null;
+          // Get message type using Baileys getContentType
+          const messageType = getContentType(message.message);
           
-          if (messageContent.imageMessage) {
-            mediaType = 'image';
-            mediaMessage = messageContent.imageMessage;
+          // Set filename and mimetype based on message type
+          if (messageType === 'imageMessage') {
             filename = 'image.jpg';
             mimetype = 'image/jpeg';
-          } else if (messageContent.videoMessage) {
-            mediaType = 'video';
-            mediaMessage = messageContent.videoMessage;
+          } else if (messageType === 'videoMessage') {
             filename = 'video.mp4';
             mimetype = 'video/mp4';
-          } else if (messageContent.audioMessage) {
-            mediaType = 'audio';
-            mediaMessage = messageContent.audioMessage;
+          } else if (messageType === 'audioMessage') {
             filename = 'audio.ogg';
             mimetype = 'audio/ogg';
-          } else if (messageContent.documentMessage) {
-            mediaType = 'document';
-            mediaMessage = messageContent.documentMessage;
-            filename = messageContent.documentMessage.fileName || 'document';
-            mimetype = messageContent.documentMessage.mimetype || 'application/octet-stream';
+          } else if (messageType === 'documentMessage') {
+            const docMessage = message.message.documentMessage;
+            filename = docMessage.fileName || 'document';
+            mimetype = docMessage.mimetype || 'application/octet-stream';
           }
           
-          // Check if media message has required key information
-          if (!mediaMessage || !mediaMessage.url || !mediaMessage.mediaKey) {
-            Logger.warning(`Media message missing required key information: ${JSON.stringify(mediaMessage)}`);
-            throw new Error('Media message missing required key information');
+          try {
+            // Use Baileys downloadMediaMessage with proper error handling
+            const stream = await downloadMediaMessage(
+              message,
+              'stream',
+              {},
+              {
+                logger: Logger,
+                // Pass this so that Baileys can request a reupload of media that has been deleted
+                reuploadRequest: this.sock.updateMediaMessage
+              }
+            );
+            
+            const chunks = [];
+            for await (const chunk of stream) {
+              chunks.push(chunk);
+            }
+            mediaBuffer = Buffer.concat(chunks);
+          } catch (downloadError) {
+            Logger.warning(`Failed to download media: ${downloadError.message}`);
+            
+            // If media download fails, try to request reupload
+            try {
+              Logger.info('Attempting to request media reupload...');
+              await this.sock.updateMediaMessage(message);
+              
+              // Wait a moment and try download again
+              await new Promise(resolve => setTimeout(resolve, 2000));
+              const retryStream = await downloadMediaMessage(
+                message,
+                'stream',
+                {},
+                {
+                  logger: Logger,
+                  reuploadRequest: this.sock.updateMediaMessage
+                }
+              );
+              
+              const retryChunks = [];
+              for await (const chunk of retryStream) {
+                retryChunks.push(chunk);
+              }
+              mediaBuffer = Buffer.concat(retryChunks);
+              Logger.success('Media reupload successful');
+            } catch (reuploadError) {
+              Logger.error(`Media reupload failed: ${reuploadError.message}`);
+              throw new Error(`Media download failed: ${downloadError.message}`);
+            }
           }
-          
-          const stream = await downloadContentFromMessage(message, mediaType);
-          const chunks = [];
-          for await (const chunk of stream) {
-            chunks.push(chunk);
-          }
-          mediaBuffer = Buffer.concat(chunks);
           
           Logger.info(`Media downloaded: ${mimetype}, size: ${mediaBuffer.length} bytes`);
           
