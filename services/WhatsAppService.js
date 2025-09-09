@@ -215,7 +215,7 @@ class WhatsAppService {
             this.consecutiveAuthFailures++;
             Logger.error(`Authentication failed (attempt ${this.consecutiveAuthFailures}/${this.maxAuthFailures}): Logged out`);
             
-            await this.updateSessionStatus('failed');
+            await this.sessionManager.updateSessionStatus('failed');
             
             // Properly destroy the socket first to release file handles
             if (this.sock) {
@@ -241,7 +241,17 @@ class WhatsAppService {
               await this.clearLocalSession();
             }
             
-            await this.sendDiscordAlert('❌ **WhatsApp Authentication Failed**', `Authentication failed: Logged out (attempt ${this.consecutiveAuthFailures}/${this.maxAuthFailures})`);
+            // Send Discord alert if available
+            if (this.discordClient && this.config.discord.adminChannelId) {
+              try {
+                const channel = this.discordClient.channels.cache.get(this.config.discord.adminChannelId);
+                if (channel) {
+                  await channel.send(`❌ **WhatsApp Authentication Failed**\nAuthentication failed: Logged out (attempt ${this.consecutiveAuthFailures}/${this.maxAuthFailures})`);
+                }
+              } catch (discordError) {
+                Logger.error('Failed to send Discord alert:', discordError);
+              }
+            }
           } catch (error) {
             Logger.error('Error in dynamic session recovery:', error);
             // Fallback to sessionManager
