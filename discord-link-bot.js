@@ -75,8 +75,8 @@ async function registerCommands() {
 }
 
 // Bot ready event
-Logger.info('Setting up clientReady event handler...');
-client.once('clientReady', async () => {
+Logger.info('Setting up ready event handler...');
+client.once('ready', async () => {
     Logger.success(`Bot logged in as ${client.user.tag}`);
     Logger.startup(`Monitoring ${config.discord.channelsToMonitor.length} channels in guild ${config.discord.guildId}`);
     
