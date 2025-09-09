@@ -20,6 +20,8 @@ class WhatsAppService {
     this.baileys = null; // Will store dynamically imported Baileys functions
     this.consecutiveAuthFailures = 0; // Track consecutive authentication failures
     this.maxAuthFailures = 3; // Force clear session after 3 consecutive failures
+    this.totalRestartAttempts = 0; // Track total restart attempts
+    this.maxRestartAttempts = 10; // Maximum total restart attempts before giving up
     
     Logger.info('WhatsAppService initialized');
   }
@@ -90,7 +92,14 @@ class WhatsAppService {
         // Set the current session ID to the existing Baserow session
         this.sessionManager.currentSessionId = baserowSession.session_id;
       } else if (hasLocalSession && !baserowSession) {
-        Logger.info('Found local session but no valid Baserow session, will create new session record');
+        Logger.warning('Found local session but no valid Baserow session - this may be a corrupted session');
+        Logger.info('Clearing potentially corrupted local session to force fresh authentication');
+        try {
+          await this.sessionManager.forceClearSession();
+          Logger.info('Successfully cleared corrupted local session');
+        } catch (clearError) {
+          Logger.error('Failed to clear corrupted session, will attempt to use existing session:', clearError.message);
+        }
       } else if (!hasLocalSession && baserowSession) {
         Logger.warning('Found Baserow session but no local session - local files required for restoration');
         Logger.info('Clearing orphaned Baserow session and requiring fresh authentication');
@@ -181,6 +190,7 @@ class WhatsAppService {
         Logger.info('Authentication completed successfully - device should now appear in WhatsApp');
         this.isConnected = true;
         this.consecutiveAuthFailures = 0; // Reset failure counter on successful connection
+        this.totalRestartAttempts = 0; // Reset restart counter on successful connection
         this.sessionManager.cancelSessionRestoreTimeout();
         await this.sessionManager.saveSession();
         await this.sessionManager.updateSessionStatus('active');
@@ -262,7 +272,13 @@ class WhatsAppService {
           }
           // Restart the authentication process with longer delay to allow cleanup
           setTimeout(() => {
-            Logger.info('Restarting WhatsApp authentication...');
+            this.totalRestartAttempts++;
+            if (this.totalRestartAttempts > this.maxRestartAttempts) {
+              Logger.error(`Maximum restart attempts (${this.maxRestartAttempts}) reached. Stopping authentication attempts.`);
+              Logger.error('WhatsApp authentication has failed too many times. Manual intervention may be required.');
+              return;
+            }
+            Logger.info(`Restarting WhatsApp authentication... (attempt ${this.totalRestartAttempts}/${this.maxRestartAttempts})`);
             this.initializeClient();
           }, 5000); // Wait 5 seconds before restarting to allow session cleanup
         } else if (isStreamError) {
