@@ -238,7 +238,7 @@ class WhatsAppService {
               this.consecutiveAuthFailures = 0; // Reset counter after force clear
             } else {
               // Clear local session files to force fresh authentication
-              await this.clearLocalSession();
+              await this.sessionManager.clearLocalSession();
             }
             
             // Send Discord alert if available
