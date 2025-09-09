@@ -322,5 +322,175 @@ describe('ReactionHandler', () => {
         'DM error'
       );
     });
+
+    it('should handle reaction remove errors gracefully', async () => {
+      mockReaction.emoji.name = '✅';
+      mockReaction.message.guild = { id: '123456789' };
+      mockReaction.message.id = '123456789';
+      mockReaction.message.channel.id = '111111111';
+      mockBaserowService.updateReadStatusFromReaction.mockRejectedValue(new Error('Remove error'));
+
+      await reactionHandler.handleReactionRemove(mockReaction, mockUser);
+
+      expect(Logger.error).toHaveBeenCalledWith(
+        'Error handling reaction removal:',
+        'Remove error'
+      );
+    });
+
+    it('should handle DM reaction remove errors gracefully', async () => {
+      mockReaction.message.guild = null;
+      mockReaction.message.id = '123456789';
+      mockBaserowService.findDMMapping.mockRejectedValue(new Error('DM remove error'));
+
+      await reactionHandler.handleReactionRemove(mockReaction, mockUser);
+
+      expect(Logger.error).toHaveBeenCalledWith(
+        'Error handling reaction removal:',
+        'DM remove error'
+      );
+    });
+
+    it('should handle deletion reaction errors gracefully', async () => {
+      mockReaction.emoji.name = '🗑️';
+      const mockMember = {
+        id: '987654321',
+        user: { username: 'testuser' },
+        permissions: {
+          has: jest.fn().mockReturnValue(true) // Make user admin
+        },
+        roles: {
+          cache: {
+            map: jest.fn().mockReturnValue(['Admin']),
+            some: jest.fn().mockReturnValue(true)
+          }
+        }
+      };
+      mockReaction.message.guild = { 
+        id: '123456789',
+        members: {
+          fetch: jest.fn().mockResolvedValue(mockMember)
+        }
+      };
+      mockReaction.message.id = '123456789';
+      mockReaction.message.channel.id = '111111111';
+      mockReaction.message.delete = jest.fn().mockRejectedValue(new Error('Delete error'));
+      mockBaserowService.deleteLink.mockResolvedValue(true);
+
+      await reactionHandler.handleDeletionReaction(mockReaction, mockUser);
+
+      expect(Logger.error).toHaveBeenCalledWith(
+        'Error deleting message: Delete error'
+      );
+    });
+
+    it('should handle DM deletion reaction by skipping (no guild)', async () => {
+      mockReaction.emoji.name = '🗑️';
+      mockReaction.message.guild = null;
+      mockReaction.message.id = '123456789';
+
+      // DM deletion reactions should be skipped since there's no guild
+      await expect(reactionHandler.handleDeletionReaction(mockReaction, mockUser)).rejects.toThrow();
+    });
+  });
+
+  describe('additional edge cases', () => {
+    it('should handle reaction with no emoji name', async () => {
+      mockReaction.emoji.name = null;
+      mockReaction.message.guild = { id: '123456789' };
+      mockReaction.message.id = '123456789';
+      mockReaction.message.channel.id = '111111111';
+
+      await reactionHandler.handleReactionAdd(mockReaction, mockUser);
+      expect(mockBaserowService.updateReadStatusFromReaction).not.toHaveBeenCalled();
+    });
+
+    it('should handle reaction with undefined emoji name', async () => {
+      mockReaction.emoji.name = undefined;
+      mockReaction.message.guild = { id: '123456789' };
+      mockReaction.message.id = '123456789';
+      mockReaction.message.channel.id = '111111111';
+
+      await reactionHandler.handleReactionAdd(mockReaction, mockUser);
+      expect(mockBaserowService.updateReadStatusFromReaction).not.toHaveBeenCalled();
+    });
+
+    it('should handle reaction with empty emoji name', async () => {
+      mockReaction.emoji.name = '';
+      mockReaction.message.guild = { id: '123456789' };
+      mockReaction.message.id = '123456789';
+      mockReaction.message.channel.id = '111111111';
+
+      await reactionHandler.handleReactionAdd(mockReaction, mockUser);
+      expect(mockBaserowService.updateReadStatusFromReaction).not.toHaveBeenCalled();
+    });
+
+    it('should handle reaction with no message guild and no DM mapping', async () => {
+      mockReaction.emoji.name = '✅';
+      mockReaction.message.guild = null;
+      mockReaction.message.id = '123456789';
+      mockBaserowService.findDMMapping.mockResolvedValue(null);
+
+      await reactionHandler.handleReactionAdd(mockReaction, mockUser);
+      expect(mockBaserowService.updateReadStatusFromReaction).not.toHaveBeenCalled();
+    });
+
+    it('should handle reaction with no message guild and expired DM mapping', async () => {
+      mockReaction.emoji.name = '✅';
+      mockReaction.message.guild = null;
+      mockReaction.message.id = '123456789';
+      const expiredMapping = {
+        ...mockDMMapping,
+        expires_at: new Date(Date.now() - 1000).toISOString() // Expired 1 second ago
+      };
+      mockBaserowService.findDMMapping.mockResolvedValue(expiredMapping);
+
+      await reactionHandler.handleReactionAdd(mockReaction, mockUser);
+      expect(mockBaserowService.updateReadStatusFromReaction).not.toHaveBeenCalled();
+    });
+
+    it('should handle deletion reaction with no link found', async () => {
+      mockReaction.emoji.name = '🗑️';
+      mockReaction.message.guild = { 
+        id: '123456789',
+        members: {
+          fetch: jest.fn().mockResolvedValue(mockUser)
+        }
+      };
+      mockReaction.message.id = '123456789';
+      mockReaction.message.channel.id = '111111111';
+      mockBaserowService.findLinkByMessageIdAllGuilds.mockResolvedValue(null);
+
+      await reactionHandler.handleDeletionReaction(mockReaction, mockUser);
+      expect(mockBaserowService.deleteLink).not.toHaveBeenCalled();
+    });
+
+    it('should handle deletion reaction with deleteLink error', async () => {
+      mockReaction.emoji.name = '🗑️';
+      mockReaction.message.guild = { 
+        id: '123456789',
+        members: {
+          fetch: jest.fn().mockResolvedValue(mockUser)
+        }
+      };
+      mockReaction.message.id = '123456789';
+      mockReaction.message.channel.id = '111111111';
+      mockBaserowService.findLinkByMessageIdAllGuilds.mockResolvedValue(mockBaserowLink);
+      mockBaserowService.deleteLink.mockRejectedValue(new Error('Delete failed'));
+
+      await expect(reactionHandler.handleDeletionReaction(mockReaction, mockUser)).resolves.not.toThrow();
+      expect(Logger.error).toHaveBeenCalled();
+    });
+
+    it('should handle DM deletion reaction with no link found by skipping (no guild)', async () => {
+      mockReaction.emoji.name = '🗑️';
+      mockReaction.message.guild = null;
+      mockReaction.message.id = '123456789';
+      mockBaserowService.findDMMapping.mockResolvedValue(mockDMMapping);
+      mockBaserowService.findLinkByMessageIdAllGuilds.mockResolvedValue(null);
+
+      // DM deletion reactions should be skipped since there's no guild
+      await expect(reactionHandler.handleDeletionReaction(mockReaction, mockUser)).rejects.toThrow();
+    });
   });
 });

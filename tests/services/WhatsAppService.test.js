@@ -240,4 +240,119 @@ describe('WhatsAppService', () => {
             expect(typeof whatsappService.sessionManager.cancelSessionRestoreTimeout).toBe('function');
         });
     });
+
+    describe('connection health checks', () => {
+        test('should check connection health when sock exists', async () => {
+            whatsappService = new WhatsAppService(mockConfig);
+            await whatsappService.initialize();
+            
+            // Mock sock with user property
+            whatsappService.sock = { user: { id: 'test-user' } };
+            whatsappService.isConnected = true;
+            
+            await expect(whatsappService.checkConnectionHealth()).resolves.not.toThrow();
+        });
+
+        test('should handle connection health check when sock is null', async () => {
+            whatsappService = new WhatsAppService(mockConfig);
+            whatsappService.sock = null;
+            whatsappService.isConnected = false;
+            
+            await expect(whatsappService.checkConnectionHealth()).resolves.not.toThrow();
+        });
+
+        test('should handle connection health check when sock has no user', async () => {
+            whatsappService = new WhatsAppService(mockConfig);
+            await whatsappService.initialize();
+            
+            // Mock sock without user property
+            whatsappService.sock = { user: null };
+            whatsappService.isConnected = true;
+            
+            await expect(whatsappService.checkConnectionHealth()).resolves.not.toThrow();
+        });
+    });
+
+    describe('message handling', () => {
+        test('should handle message processing after initialization', async () => {
+            whatsappService = new WhatsAppService(mockConfig);
+            await whatsappService.initialize();
+            
+            const mockMessage = {
+                key: { remoteJid: 'test@c.us', fromMe: false },
+                message: { conversation: 'test message' },
+                messageTimestamp: Date.now() / 1000,
+                pushName: 'Test User'
+            };
+            
+            // Mock the message handler
+            whatsappService.messageHandler = {
+                handleMessage: jest.fn().mockResolvedValue()
+            };
+            
+            await whatsappService.messageHandler.handleMessage(mockMessage);
+            expect(whatsappService.messageHandler.handleMessage).toHaveBeenCalledWith(mockMessage);
+        });
+    });
+
+    describe('error handling', () => {
+        test('should handle initialization errors gracefully', async () => {
+            whatsappService = new WhatsAppService(mockConfig);
+            
+            // Mock Baileys to throw an error
+            const baileys = require('@whiskeysockets/baileys');
+            baileys.default.mockImplementation(() => {
+                throw new Error('Socket creation failed');
+            });
+            
+            await expect(whatsappService.initialize()).rejects.toThrow('Socket creation failed');
+        });
+
+        test('should handle destroy when sock is null', async () => {
+            whatsappService = new WhatsAppService(mockConfig);
+            whatsappService.sock = null;
+            
+            await expect(whatsappService.destroy()).resolves.not.toThrow();
+        });
+
+        test('should handle destroy when sock exists but logout fails', async () => {
+            whatsappService = new WhatsAppService(mockConfig);
+            whatsappService.sock = {
+                logout: jest.fn().mockRejectedValue(new Error('Logout failed'))
+            };
+            
+            await expect(whatsappService.destroy()).resolves.not.toThrow();
+        });
+    });
+
+    describe('configuration validation', () => {
+        test('should validate WhatsApp configuration', () => {
+            const validConfig = {
+                whatsapp: {
+                    enabled: true,
+                    sessionEncryptionKey: 'test-key-32-characters-long',
+                    storeMessages: true
+                },
+                baserow: {
+                    whatsappSessionsTableId: 'test-sessions',
+                    whatsappChatsTableId: 'test-chats',
+                    whatsappMessagesTableId: 'test-messages'
+                }
+            };
+            
+            whatsappService = new WhatsAppService(validConfig);
+            expect(whatsappService.config).toBe(validConfig);
+        });
+
+        test('should handle missing WhatsApp configuration', () => {
+            const invalidConfig = {
+                whatsapp: {
+                    enabled: false
+                }
+            };
+            
+            whatsappService = new WhatsAppService(invalidConfig);
+            expect(whatsappService.config).toBe(invalidConfig);
+        });
+    });
 });

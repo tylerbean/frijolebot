@@ -130,4 +130,82 @@ describe('Logger', () => {
       expect(() => Logger.startup(arr)).not.toThrow();
     });
   });
+
+  describe('Production environment behavior', () => {
+    let originalNodeEnv;
+
+    beforeEach(() => {
+      originalNodeEnv = process.env.NODE_ENV;
+    });
+
+    afterEach(() => {
+      process.env.NODE_ENV = originalNodeEnv;
+    });
+
+    it('should not log info messages in production', () => {
+      process.env.NODE_ENV = 'production';
+      Logger.info('Test info message');
+      expect(consoleSpy.log).not.toHaveBeenCalled();
+    });
+
+    it('should not log success messages in production', () => {
+      process.env.NODE_ENV = 'production';
+      Logger.success('Test success message');
+      expect(consoleSpy.log).not.toHaveBeenCalled();
+    });
+
+    it('should not log warning messages in production', () => {
+      process.env.NODE_ENV = 'production';
+      Logger.warning('Test warning message');
+      expect(consoleSpy.log).not.toHaveBeenCalled();
+    });
+
+    it('should not log debug messages in production', () => {
+      process.env.NODE_ENV = 'production';
+      Logger.debug('Test debug message');
+      expect(consoleSpy.log).not.toHaveBeenCalled();
+    });
+
+    it('should still log error messages in production', () => {
+      process.env.NODE_ENV = 'production';
+      Logger.error('Test error message');
+      expect(consoleSpy.error).toHaveBeenCalledWith(
+        expect.stringMatching(/^❌ \[.*\] Test error message$/)
+      );
+    });
+
+    it('should still log startup messages in production', () => {
+      process.env.NODE_ENV = 'production';
+      Logger.startup('Test startup message');
+      expect(consoleSpy.log).toHaveBeenCalledWith(
+        expect.stringMatching(/^🚀 \[.*\] Test startup message$/)
+      );
+    });
+
+    it('should still log shutdown messages in production', () => {
+      process.env.NODE_ENV = 'production';
+      Logger.shutdown('Test shutdown message');
+      expect(consoleSpy.log).toHaveBeenCalledWith(
+        expect.stringMatching(/^🛑 \[.*\] Test shutdown message$/)
+      );
+    });
+  });
+
+  describe('Shutdown logging behavior', () => {
+    it('should always log shutdown messages', () => {
+      Logger.shutdown('Test shutdown message');
+      expect(consoleSpy.log).toHaveBeenCalledWith(
+        expect.stringMatching(/^🛑 \[.*\] Test shutdown message$/)
+      );
+    });
+
+    it('should handle shutdown messages with multiple arguments', () => {
+      Logger.shutdown('Test shutdown', { key: 'value' }, 123);
+      expect(consoleSpy.log).toHaveBeenCalledWith(
+        expect.stringMatching(/^🛑 \[.*\] Test shutdown$/),
+        { key: 'value' },
+        123
+      );
+    });
+  });
 });
