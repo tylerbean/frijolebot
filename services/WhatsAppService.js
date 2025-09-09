@@ -210,16 +210,40 @@ class WhatsAppService {
         // Handle different disconnect scenarios
         if (isLoggedOut) {
           Logger.error('Logged out, restarting authentication process...');
-          // Call handleAuthFailure directly with error handling
+          // Implement dynamic session recovery directly in event handler
           try {
-            if (typeof this.handleAuthFailure === 'function') {
-              await this.handleAuthFailure('Logged out');
-            } else {
-              Logger.error('handleAuthFailure method not available, calling sessionManager instead');
-              await this.sessionManager.handleAuthFailure('Logged out');
+            this.consecutiveAuthFailures++;
+            Logger.error(`Authentication failed (attempt ${this.consecutiveAuthFailures}/${this.maxAuthFailures}): Logged out`);
+            
+            await this.updateSessionStatus('failed');
+            
+            // Properly destroy the socket first to release file handles
+            if (this.sock) {
+              try {
+                Logger.info('Destroying WhatsApp socket to release file handles...');
+                await this.sock.logout();
+                this.sock = null;
+              } catch (logoutError) {
+                Logger.warning('Error during socket logout:', logoutError.message);
+              }
             }
+            
+            // Wait a moment for file handles to be released
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            
+            // If we've had too many consecutive failures, force clear the session
+            if (this.consecutiveAuthFailures >= this.maxAuthFailures) {
+              Logger.warning(`Too many consecutive authentication failures (${this.consecutiveAuthFailures}), forcing session clear...`);
+              await this.forceClearSession();
+              this.consecutiveAuthFailures = 0; // Reset counter after force clear
+            } else {
+              // Clear local session files to force fresh authentication
+              await this.clearLocalSession();
+            }
+            
+            await this.sendDiscordAlert('❌ **WhatsApp Authentication Failed**', `Authentication failed: Logged out (attempt ${this.consecutiveAuthFailures}/${this.maxAuthFailures})`);
           } catch (error) {
-            Logger.error('Error in handleAuthFailure:', error);
+            Logger.error('Error in dynamic session recovery:', error);
             // Fallback to sessionManager
             await this.sessionManager.handleAuthFailure('Logged out');
           }
