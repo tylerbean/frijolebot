@@ -228,8 +228,11 @@ class WhatsAppService {
               }
             }
             
-            // Wait a moment for file handles to be released
-            await new Promise(resolve => setTimeout(resolve, 1000));
+            // Wait longer for file handles to be released and force garbage collection
+            await new Promise(resolve => setTimeout(resolve, 3000));
+            if (global.gc) {
+              global.gc();
+            }
             
             // If we've had too many consecutive failures, force clear the session
             if (this.consecutiveAuthFailures >= this.maxAuthFailures) {
@@ -604,7 +607,7 @@ class WhatsAppSessionManager {
       const sessionPath = path.join(process.cwd(), 'auth_info_baileys');
       if (fs.existsSync(sessionPath)) {
         // Try to clear the session directory with retries for EBUSY errors
-        let retries = 3;
+        let retries = 5; // Increased retries
         while (retries > 0) {
           try {
             fs.rmSync(sessionPath, { recursive: true, force: true });
@@ -612,10 +615,11 @@ class WhatsAppSessionManager {
             return; // Success, exit the retry loop
           } catch (rmError) {
             if (rmError.code === 'EBUSY' && retries > 1) {
-              Logger.warning(`Session directory busy, retrying in 2 seconds... (${retries - 1} retries left)`);
-              await new Promise(resolve => setTimeout(resolve, 2000));
+              Logger.warning(`Session directory busy, retrying in 3 seconds... (${retries - 1} retries left)`);
+              await new Promise(resolve => setTimeout(resolve, 3000));
               retries--;
             } else {
+              Logger.error('Session directory still busy after retries - will be cleared on next restart');
               throw rmError; // Re-throw if not EBUSY or no retries left
             }
           }
@@ -634,19 +638,45 @@ class WhatsAppSessionManager {
     try {
       Logger.warning('Force clearing corrupted WhatsApp session...');
       
+      // Force garbage collection to release any remaining file handles
+      if (global.gc) {
+        global.gc();
+      }
+      
       // First, try to clear the local session with more aggressive retries
       const sessionPath = path.join(process.cwd(), 'auth_info_baileys');
       if (fs.existsSync(sessionPath)) {
-        let retries = 10; // More retries for force clear
+        let retries = 15; // More retries for force clear
         while (retries > 0) {
           try {
-            fs.rmSync(sessionPath, { recursive: true, force: true });
-            Logger.info('Force cleared local WhatsApp session files');
-            break;
+            // Try to remove individual files first if directory removal fails
+            try {
+              fs.rmSync(sessionPath, { recursive: true, force: true });
+              Logger.info('Force cleared local WhatsApp session files');
+              break;
+            } catch (dirError) {
+              if (dirError.code === 'EBUSY') {
+                // Try to remove individual files
+                const files = fs.readdirSync(sessionPath);
+                for (const file of files) {
+                  try {
+                    fs.unlinkSync(path.join(sessionPath, file));
+                  } catch (fileError) {
+                    Logger.warning(`Could not remove file ${file}:`, fileError.message);
+                  }
+                }
+                // Try to remove directory again
+                fs.rmSync(sessionPath, { recursive: true, force: true });
+                Logger.info('Force cleared local WhatsApp session files (individual file removal)');
+                break;
+              } else {
+                throw dirError;
+              }
+            }
           } catch (rmError) {
             if (rmError.code === 'EBUSY' && retries > 1) {
-              Logger.warning(`Force clear: Session directory busy, retrying in 3 seconds... (${retries - 1} retries left)`);
-              await new Promise(resolve => setTimeout(resolve, 3000));
+              Logger.warning(`Force clear: Session directory busy, retrying in 5 seconds... (${retries - 1} retries left)`);
+              await new Promise(resolve => setTimeout(resolve, 5000));
               retries--;
             } else {
               Logger.error('Force clear failed:', rmError);
