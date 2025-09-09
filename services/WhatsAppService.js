@@ -738,7 +738,8 @@ class WhatsAppMessageHandler {
           let filename = 'media';
           let mimetype = 'application/octet-stream';
           
-          // Get message type using Baileys getContentType
+          // Ensure Baileys is loaded and get message type
+          await this.loadBaileys();
           const { getContentType } = this.baileys;
           const messageType = getContentType(message.message);
           
@@ -759,7 +760,8 @@ class WhatsAppMessageHandler {
           }
           
           try {
-            // Use Baileys downloadMediaMessage with proper error handling
+            // Ensure Baileys is loaded and use downloadMediaMessage with proper error handling
+            await this.loadBaileys();
             const { downloadMediaMessage } = this.baileys;
             const downloadOptions = {
               logger: Logger
@@ -793,7 +795,9 @@ class WhatsAppMessageHandler {
                 
                 // Wait a moment and try download again
                 await new Promise(resolve => setTimeout(resolve, 2000));
-                const retryStream = await downloadMediaMessage(
+                await this.loadBaileys();
+                const { downloadMediaMessage: retryDownloadMediaMessage } = this.baileys;
+                const retryStream = await retryDownloadMediaMessage(
                   message,
                   'stream',
                   {},
