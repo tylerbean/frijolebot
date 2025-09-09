@@ -234,7 +234,7 @@ class WhatsAppService {
             // If we've had too many consecutive failures, force clear the session
             if (this.consecutiveAuthFailures >= this.maxAuthFailures) {
               Logger.warning(`Too many consecutive authentication failures (${this.consecutiveAuthFailures}), forcing session clear...`);
-              await this.forceClearSession();
+              await this.sessionManager.forceClearSession();
               this.consecutiveAuthFailures = 0; // Reset counter after force clear
             } else {
               // Clear local session files to force fresh authentication
@@ -586,11 +586,11 @@ class WhatsAppSessionManager {
       // If we've had too many consecutive failures, force clear the session
       if (this.consecutiveAuthFailures >= this.maxAuthFailures) {
         Logger.warning(`Too many consecutive authentication failures (${this.consecutiveAuthFailures}), forcing session clear...`);
-        await this.forceClearSession();
+        await this.sessionManager.forceClearSession();
         this.consecutiveAuthFailures = 0; // Reset counter after force clear
       } else {
         // Clear local session files to force fresh authentication
-        await this.clearLocalSession();
+        await this.sessionManager.clearLocalSession();
       }
       
       await this.sendDiscordAlert('❌ **WhatsApp Authentication Failed**', `Authentication failed: ${msg} (attempt ${this.consecutiveAuthFailures}/${this.maxAuthFailures})`);
