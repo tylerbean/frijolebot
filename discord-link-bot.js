@@ -75,19 +75,6 @@ async function registerCommands() {
 }
 
 // Bot ready event
-Logger.info('Setting up ready event handler...');
-Logger.info(`Client ready status: ${client.isReady()}`);
-
-if (client.isReady()) {
-    Logger.info('Client is already ready, executing ready logic immediately...');
-    await executeReadyLogic();
-} else {
-    client.once('ready', async () => {
-        Logger.info('Ready event fired!');
-        await executeReadyLogic();
-    });
-}
-
 async function executeReadyLogic() {
     Logger.info('Ready event fired!');
     Logger.success(`Bot logged in as ${client.user.tag}`);
@@ -128,6 +115,20 @@ async function executeReadyLogic() {
         } else {
             Logger.warning(`Channel ${channelId} not found or not accessible`);
         }
+    });
+}
+
+// Set up ready event handler
+Logger.info('Setting up ready event handler...');
+Logger.info(`Client ready status: ${client.isReady()}`);
+
+if (client.isReady()) {
+    Logger.info('Client is already ready, executing ready logic immediately...');
+    await executeReadyLogic();
+} else {
+    client.once('ready', async () => {
+        Logger.info('Ready event fired!');
+        await executeReadyLogic();
     });
 }
 
