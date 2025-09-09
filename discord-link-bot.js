@@ -75,6 +75,7 @@ async function registerCommands() {
 }
 
 // Bot ready event
+Logger.info('Setting up clientReady event handler...');
 client.once('clientReady', async () => {
     Logger.success(`Bot logged in as ${client.user.tag}`);
     Logger.startup(`Monitoring ${config.discord.channelsToMonitor.length} channels in guild ${config.discord.guildId}`);
@@ -233,6 +234,7 @@ setInterval(async () => {
 }, 60 * 60 * 1000); // Run every hour
 
 // Start the bot
+Logger.info('Attempting Discord login...');
 client.login(config.discord.token).catch(error => {
     Logger.error('Failed to login:', error);
     
