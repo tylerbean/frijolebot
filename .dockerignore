@@ -1,0 +1,67 @@
+# Dependencies
+node_modules
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Testing
+tests/
+coverage/
+.nyc_output
+*.test.js
+*.spec.js
+jest.config.js
+
+# Development files
+.env.example
+.env.local
+.env.development
+.env.test
+.git
+.gitignore
+README.md
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs
+logs/
+*.log
+
+# Runtime data
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage directory used by tools like istanbul
+coverage/
+
+# Docker files (don't include in image)
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Kubernetes files
+k8s-deployment.yaml
+
+# Cursor IDE files
+.cursor/
+
+# WhatsApp session files (should be mounted as volumes)
+auth_info_baileys/
+.wwebjs_auth/
+.wwebjs_cache/

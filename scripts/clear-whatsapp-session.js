@@ -5,26 +5,20 @@ async function clearWhatsAppSession() {
     console.log('🧹 Clearing WhatsApp session...');
     
     try {
-        // Clear local session files
-        const sessionPath = path.join(process.cwd(), '.wwebjs_auth', 'session-frijolebot-whatsapp');
+        // Clear Baileys session files
+        const sessionPath = path.join(process.cwd(), 'auth_info_baileys');
         if (fs.existsSync(sessionPath)) {
             fs.rmSync(sessionPath, { recursive: true, force: true });
-            console.log('✅ Local session files cleared');
+            console.log('✅ Baileys session files cleared');
         } else {
-            console.log('ℹ️  No local session files found');
+            console.log('ℹ️  No Baileys session files found');
         }
         
-        // Clear any other session-related files
-        const authDir = path.join(process.cwd(), '.wwebjs_auth');
-        if (fs.existsSync(authDir)) {
-            const files = fs.readdirSync(authDir);
-            files.forEach(file => {
-                if (file.includes('frijolebot')) {
-                    const filePath = path.join(authDir, file);
-                    fs.rmSync(filePath, { recursive: true, force: true });
-                    console.log(`✅ Cleared: ${file}`);
-                }
-            });
+        // Also clear any old whatsapp-web.js session files if they exist
+        const oldSessionPath = path.join(process.cwd(), '.wwebjs_auth');
+        if (fs.existsSync(oldSessionPath)) {
+            fs.rmSync(oldSessionPath, { recursive: true, force: true });
+            console.log('✅ Old whatsapp-web.js session files cleared');
         }
         
         console.log('🎉 WhatsApp session cleared successfully!');

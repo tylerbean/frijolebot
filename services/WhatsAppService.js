@@ -61,8 +61,14 @@ class WhatsAppService {
       Logger.info(`Local session check result: ${hasLocalSession}`);
       
       // Check if we have a valid Baserow session
-      const baserowSession = await this.sessionManager.getActiveSession();
-      Logger.info(`Baserow session check result: ${baserowSession ? 'found' : 'not found'}`);
+      let baserowSession = null;
+      try {
+        baserowSession = await this.sessionManager.getActiveSession();
+        Logger.info(`Baserow session check result: ${baserowSession ? 'found' : 'not found'}`);
+      } catch (error) {
+        Logger.warning('Failed to check Baserow session (network issue), proceeding with local session only:', error.message);
+        baserowSession = null;
+      }
       
       if (hasLocalSession && baserowSession) {
         Logger.info('Found existing local and Baserow WhatsApp session, attempting to restore...');
@@ -84,6 +90,7 @@ class WhatsAppService {
       const { state, saveCreds } = await useMultiFileAuthState('./auth_info_baileys');
       
       // Create WhatsApp socket with Baileys
+      Logger.info('Creating Baileys socket with auth state...');
       this.sock = makeWASocket({
         auth: state,
         printQRInTerminal: false,
@@ -106,6 +113,7 @@ class WhatsAppService {
           fatal: () => {}
         }
       });
+      Logger.info('Baileys socket created successfully');
 
       // Set up event listeners
       this.setupEventListeners();
@@ -123,18 +131,38 @@ class WhatsAppService {
 
   setupEventListeners() {
     Logger.info('Setting up WhatsApp client event listeners...');
+    Logger.info('Socket exists:', !!this.sock);
     
-    // Connection updates (includes QR, ready, disconnected states)
-    this.sock.ev.on('connection.update', async (update) => {
-      const { connection, lastDisconnect, qr } = update;
+      // Connection updates (includes QR, ready, disconnected states)
+      this.sock.ev.on('connection.update', async (update) => {
+        const { connection, lastDisconnect, qr } = update;
+        Logger.info('WhatsApp connection update:', { 
+          connection, 
+          hasQR: !!qr, 
+          lastDisconnect: lastDisconnect?.error?.output?.statusCode,
+          lastDisconnectError: lastDisconnect?.error?.message,
+          fullUpdate: JSON.stringify(update, null, 2)
+        });
       
       if (qr) {
         Logger.info('QR code generated for WhatsApp authentication');
+        Logger.info('Discord client ready:', !!this.discordClient);
+        Logger.info('Admin channel ID:', this.config.discord.adminChannelId);
+        Logger.info('QR code length:', qr.length);
+        Logger.info('QR code first 50 chars:', qr.substring(0, 50));
+        Logger.info('⏳ Waiting for QR code scan - do not disconnect!');
         await this.sessionManager.handleQRCode(qr);
+      }
+      
+      if (connection === 'connecting') {
+        Logger.info('WhatsApp client connecting...');
+        Logger.info('This may happen after QR scan - waiting for authentication to complete');
       }
       
       if (connection === 'open') {
         Logger.success('WhatsApp client is ready!');
+        Logger.info('WhatsApp user info:', this.sock.user);
+        Logger.info('Authentication completed successfully - device should now appear in WhatsApp');
         this.isConnected = true;
         this.sessionManager.cancelSessionRestoreTimeout();
         await this.sessionManager.saveSession();
@@ -142,16 +170,45 @@ class WhatsAppService {
         await this.startMessageMonitoring();
       } else if (connection === 'close') {
         Logger.warning('WhatsApp client disconnected');
+        Logger.info('Disconnect reason:', lastDisconnect?.error?.output?.statusCode);
+        Logger.info('Disconnect error:', lastDisconnect?.error);
         this.isConnected = false;
         await this.sessionManager.updateSessionStatus('disconnected');
         
-        const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
-        if (shouldReconnect) {
-          Logger.info('Attempting to reconnect...');
-          await this.sessionManager.handleDisconnection('Connection closed');
-        } else {
-          Logger.error('Logged out, manual re-authentication required');
+        const disconnectCode = lastDisconnect?.error?.output?.statusCode;
+        const isLoggedOut = disconnectCode === DisconnectReason.loggedOut;
+        const isConnectionClosed = disconnectCode === DisconnectReason.connectionClosed;
+        const isConnectionLost = disconnectCode === DisconnectReason.connectionLost;
+        const isStreamError = disconnectCode === 515; // Stream Errored (restart required)
+        
+        Logger.info('Disconnect analysis:', { 
+          disconnectCode, 
+          isLoggedOut, 
+          isConnectionClosed, 
+          isConnectionLost,
+          isStreamError
+        });
+        
+        // Handle different disconnect scenarios
+        if (isLoggedOut) {
+          Logger.error('Logged out, restarting authentication process...');
           await this.sessionManager.handleAuthFailure('Logged out');
+          // Restart the authentication process
+          setTimeout(() => {
+            Logger.info('Restarting WhatsApp authentication...');
+            this.initializeClient();
+          }, 2000); // Wait 2 seconds before restarting
+        } else if (isStreamError) {
+          Logger.warning('Stream error detected (likely during QR scan) - attempting to reconnect...');
+          Logger.info('This is expected behavior - WhatsApp may force disconnect to present authentication credentials');
+          // For stream errors, we need to actively reconnect to complete authentication
+          setTimeout(() => {
+            Logger.info('Reconnecting after stream error to complete authentication...');
+            this.initializeClient();
+          }, 3000); // Wait 3 seconds before reconnecting
+        } else {
+          Logger.info('Connection closed but not logged out - waiting for reconnection...');
+          // Don't immediately restart, let Baileys handle reconnection
         }
       }
     });
@@ -363,9 +420,14 @@ class WhatsAppSessionManager {
 
   async sendQRCodeToDiscord(qr) {
     try {
-      const adminChannel = this.discordClient.channels.cache.get(this.config.discord.adminChannelId);
-      if (adminChannel) {
-        // Check if the QR code is already base64 image data
+      Logger.info('Attempting to send QR code to Discord...');
+      Logger.info('Discord client available:', !!this.discordClient);
+      Logger.info('Admin channel ID available:', !!this.config.discord.adminChannelId);
+      
+      if (this.discordClient && this.config.discord.adminChannelId) {
+        const adminChannel = this.discordClient.channels.cache.get(this.config.discord.adminChannelId);
+        if (adminChannel) {
+          // Check if the QR code is already base64 image data
         if (qr.startsWith('data:image/') || qr.startsWith('iVBORw0KGgo')) {
           // It's already base64 image data
           let qrData = qr;
@@ -415,10 +477,13 @@ class WhatsAppSessionManager {
           }
         }
         
-        this.qrCodeSent = true;
-        Logger.success('QR code sent to Discord admin channel');
+          this.qrCodeSent = true;
+          Logger.success('QR code sent to Discord admin channel');
+        } else {
+          Logger.warning('Admin channel not found, falling back to console');
+        }
       } else {
-        Logger.warning('Admin channel not found, falling back to console');
+        Logger.warning('Discord client or admin channel not configured, QR code not sent to Discord');
       }
     } catch (discordError) {
       Logger.error('Failed to send QR code to Discord:', discordError);
@@ -509,6 +574,12 @@ class WhatsAppMessageHandler {
       if (message.message?.protocolMessage?.type === 'REVOKE' || 
           message.message?.protocolMessage?.type === 'EPHEMERAL_SETTING') {
         Logger.debug(`Ignoring system message from ${message.key.remoteJid}`);
+        return;
+      }
+      
+      // Ignore sender key distribution messages (encryption setup)
+      if (message.message?.senderKeyDistributionMessage) {
+        Logger.debug(`Ignoring sender key distribution message from ${message.key.remoteJid}`);
         return;
       }
       
