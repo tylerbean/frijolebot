@@ -156,6 +156,7 @@ temp/
 # WhatsApp Web session data
 .wwebjs_auth/
 .wwebjs_cache/
+auth_info_baileys/
 
 # Cursor IDE
 .cursor/

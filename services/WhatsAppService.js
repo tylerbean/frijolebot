@@ -1,4 +1,4 @@
-const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
+const { default: makeWASocket, DisconnectReason, useMultiFileAuthState, downloadContentFromMessage } = require('@whiskeysockets/baileys');
 const crypto = require('crypto-js');
 const fs = require('fs');
 const path = require('path');
@@ -10,7 +10,7 @@ class WhatsAppService {
   constructor(config, discordClient = null) {
     this.config = config;
     this.discordClient = discordClient;
-    this.client = null;
+    this.sock = null;
     this.isConnected = false;
     this.isInitialized = false;
     this.sessionManager = null;
@@ -80,97 +80,26 @@ class WhatsAppService {
         Logger.info('No existing sessions found, will require QR code authentication');
       }
 
-        // Create WhatsApp client with local auth
-        this.client = new Client({
-          authStrategy: new LocalAuth({
-            clientId: 'frijolebot-whatsapp'
-          }),
-          puppeteer: {
-            headless: true,
-            args: [
-              '--no-sandbox',
-              '--disable-setuid-sandbox',
-              '--disable-dev-shm-usage',
-              '--disable-accelerated-2d-canvas',
-              '--no-first-run',
-              '--no-zygote',
-              '--disable-gpu',
-              '--disable-web-security',
-              '--disable-features=VizDisplayCompositor',
-              '--disable-background-timer-throttling',
-              '--disable-backgrounding-occluded-windows',
-              '--disable-renderer-backgrounding',
-              '--disable-extensions',
-              '--disable-plugins',
-              '--disable-default-apps',
-              '--disable-sync',
-              '--disable-translate',
-              '--hide-scrollbars',
-              '--mute-audio',
-              '--no-default-browser-check',
-              '--no-pings',
-              '--disable-logging',
-              '--disable-permissions-api',
-              '--disable-presentation-api',
-              '--disable-print-preview',
-              '--disable-speech-api',
-              '--disable-file-system',
-              '--disable-notifications',
-              '--disable-geolocation',
-              '--disable-media-session-api',
-              '--disable-background-networking',
-              '--disable-component-extensions-with-background-pages',
-              '--disable-client-side-phishing-detection',
-              '--disable-hang-monitor',
-              '--disable-ipc-flooding-protection',
-              '--disable-popup-blocking',
-              '--disable-prompt-on-repost',
-              '--disable-domain-reliability',
-              '--disable-features=TranslateUI,BlinkGenPropertyTrees',
-              '--aggressive-cache-discard',
-              '--memory-pressure-off'
-            ],
-            timeout: 30000,
-            protocolTimeout: 30000,
-            navigationTimeout: 30000
-          }
-        });
+      // Initialize Baileys auth state
+      const { state, saveCreds } = await useMultiFileAuthState('./auth_info_baileys');
+      
+      // Create WhatsApp socket with Baileys
+      this.sock = makeWASocket({
+        auth: state,
+        printQRInTerminal: false,
+        logger: {
+          level: 'silent', // Disable Baileys internal logging
+          child: () => ({ level: 'silent' })
+        }
+      });
 
       // Set up event listeners
       this.setupEventListeners();
       
-      // Initialize the client with retry logic
-      // Note: whatsapp-web.js will always generate QR codes during initialize(),
-      // even with valid sessions. This is normal behavior.
-      Logger.info('Initializing WhatsApp client...');
+      // Handle credential updates
+      this.sock.ev.on('creds.update', saveCreds);
       
-      let retryCount = 0;
-      const maxRetries = 3;
-      
-      while (retryCount < maxRetries) {
-        try {
-          const initPromise = this.client.initialize();
-          const timeoutPromise = new Promise((_, reject) => {
-            setTimeout(() => reject(new Error('WhatsApp client initialization timeout after 30 seconds')), 30000);
-          });
-          
-          await Promise.race([initPromise, timeoutPromise]);
-          Logger.info('WhatsApp client initialization completed');
-          break; // Success, exit retry loop
-          
-        } catch (error) {
-          retryCount++;
-          Logger.warning(`WhatsApp client initialization attempt ${retryCount} failed:`, error.message);
-          
-          if (retryCount >= maxRetries) {
-            Logger.error('WhatsApp client initialization failed after all retry attempts');
-            throw error;
-          }
-          
-          Logger.info(`Retrying WhatsApp client initialization in 5 seconds... (${retryCount}/${maxRetries})`);
-          await new Promise(resolve => setTimeout(resolve, 5000));
-        }
-      }
+      Logger.info('WhatsApp client initialization completed');
       
     } catch (error) {
       Logger.error('Failed to initialize WhatsApp client:', error);
@@ -181,65 +110,49 @@ class WhatsAppService {
   setupEventListeners() {
     Logger.info('Setting up WhatsApp client event listeners...');
     
-    // QR code generation
-    this.client.on('qr', async (qr) => {
-      Logger.info('QR code generated for WhatsApp authentication');
-      await this.sessionManager.handleQRCode(qr);
-    });
-
-    // Client ready
-    this.client.on('ready', async () => {
-      Logger.success('WhatsApp client is ready!');
-      this.isConnected = true;
-      this.sessionManager.cancelSessionRestoreTimeout();
-      await this.sessionManager.saveSession();
-      await this.sessionManager.updateSessionStatus('active');
-      await this.startMessageMonitoring();
-    });
-
-    // Authentication success
-    this.client.on('authenticated', async () => {
-      Logger.success('WhatsApp authentication successful');
-      this.sessionManager.cancelSessionRestoreTimeout();
-      await this.sessionManager.updateSessionStatus('authenticated');
-    });
-
-    // Authentication failure
-    this.client.on('auth_failure', async (msg) => {
-      Logger.error('WhatsApp authentication failed:', msg);
-      this.isConnected = false;
-      await this.sessionManager.updateSessionStatus('failed');
-      await this.sessionManager.handleAuthFailure(msg);
-    });
-
-    // Client disconnected
-    this.client.on('disconnected', async (reason) => {
-      Logger.warning('WhatsApp client disconnected:', reason);
-      this.isConnected = false;
-      await this.sessionManager.updateSessionStatus('disconnected');
-      await this.sessionManager.handleDisconnection(reason);
-    });
-
-    // Message received from others
-    this.client.on('message', async (message) => {
-      await this.messageHandler.handleMessage(message);
-    });
-
-    // Message created by this account (including messages sent by us)
-    this.client.on('message_create', async (message) => {
-      if (message.fromMe) {
-        Logger.info('Message sent by this account detected');
-        await this.messageHandler.handleMessage(message);
+    // Connection updates (includes QR, ready, disconnected states)
+    this.sock.ev.on('connection.update', async (update) => {
+      const { connection, lastDisconnect, qr } = update;
+      
+      if (qr) {
+        Logger.info('QR code generated for WhatsApp authentication');
+        await this.sessionManager.handleQRCode(qr);
+      }
+      
+      if (connection === 'open') {
+        Logger.success('WhatsApp client is ready!');
+        this.isConnected = true;
+        this.sessionManager.cancelSessionRestoreTimeout();
+        await this.sessionManager.saveSession();
+        await this.sessionManager.updateSessionStatus('active');
+        await this.startMessageMonitoring();
+      } else if (connection === 'close') {
+        Logger.warning('WhatsApp client disconnected');
+        this.isConnected = false;
+        await this.sessionManager.updateSessionStatus('disconnected');
+        
+        const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
+        if (shouldReconnect) {
+          Logger.info('Attempting to reconnect...');
+          await this.sessionManager.handleDisconnection('Connection closed');
+        } else {
+          Logger.error('Logged out, manual re-authentication required');
+          await this.sessionManager.handleAuthFailure('Logged out');
+        }
       }
     });
 
-    // Add more event listeners for debugging
-    this.client.on('loading_screen', (percent, message) => {
-      Logger.info(`WhatsApp loading: ${percent}% - ${message}`);
-    });
-
-    this.client.on('change_state', (state) => {
-      Logger.info(`WhatsApp state changed to: ${state}`);
+    // Message handling
+    this.sock.ev.on('messages.upsert', async (m) => {
+      const message = m.messages[0];
+      if (!message.key.fromMe && m.type === 'notify') {
+        // Incoming message from others
+        await this.messageHandler.handleMessage(message);
+      } else if (message.key.fromMe) {
+        // Message sent by this account
+        Logger.info('Message sent by this account detected');
+        await this.messageHandler.handleMessage(message);
+      }
     });
 
     Logger.info('WhatsApp client event listeners set up successfully');
@@ -265,13 +178,14 @@ class WhatsAppService {
 
   async checkConnectionHealth() {
     try {
-      if (!this.client || !this.isConnected) {
+      if (!this.sock || !this.isConnected) {
         return;
       }
 
-      const state = await this.client.getState();
-      if (state !== 'CONNECTED') {
-        Logger.warning('WhatsApp connection health check failed, state:', state);
+      // Baileys doesn't have a direct getState() method, 
+      // but we can check if the socket is still connected
+      if (!this.sock.user) {
+        Logger.warning('WhatsApp connection health check failed - no user data');
         this.isConnected = false;
         await this.sessionManager.handleConnectionLoss();
       }
@@ -283,8 +197,8 @@ class WhatsAppService {
 
   async destroy() {
     try {
-      if (this.client) {
-        await this.client.destroy();
+      if (this.sock) {
+        await this.sock.logout();
       }
       this.isConnected = false;
       this.isInitialized = false;
@@ -309,7 +223,7 @@ class WhatsAppService {
     return {
       isConnected: this.isConnected,
       isInitialized: this.isInitialized,
-      clientState: this.client ? 'initialized' : 'not_initialized'
+      clientState: this.sock ? 'initialized' : 'not_initialized'
     };
   }
 }
@@ -345,7 +259,7 @@ class WhatsAppSessionManager {
 
   async hasLocalSession() {
     try {
-      const sessionPath = path.join(process.cwd(), '.wwebjs_auth', 'session-frijolebot-whatsapp');
+      const sessionPath = path.join(process.cwd(), 'auth_info_baileys');
       const exists = fs.existsSync(sessionPath);
       Logger.info(`Checking local session at: ${sessionPath}`);
       Logger.info(`Local session exists: ${exists}`);
@@ -521,7 +435,7 @@ class WhatsAppSessionManager {
 
   async clearLocalSession() {
     try {
-      const sessionPath = path.join(process.cwd(), '.wwebjs_auth', 'session-frijolebot-whatsapp');
+      const sessionPath = path.join(process.cwd(), 'auth_info_baileys');
       if (fs.existsSync(sessionPath)) {
         fs.rmSync(sessionPath, { recursive: true, force: true });
         Logger.info('Cleared local WhatsApp session files');
@@ -578,28 +492,37 @@ class WhatsAppMessageHandler {
   async handleMessage(message) {
     try {
       // Ignore system notification messages
-      if (message.type === 'notification_template') {
-        Logger.debug(`Ignoring notification_template message from ${message.from}`);
+      if (message.message?.protocolMessage?.type === 'REVOKE' || 
+          message.message?.protocolMessage?.type === 'EPHEMERAL_SETTING') {
+        Logger.debug(`Ignoring system message from ${message.key.remoteJid}`);
         return;
       }
       
       // Determine the chat ID to check for monitoring
-      // For group messages: use message.to (the group ID)
-      // For individual messages: use message.from (the individual chat ID)
-      const chatId = message.to && message.to.includes('@g.us') ? message.to : message.from;
-      const isFromMe = message.fromMe || false;
+      // For group messages: use message.key.remoteJid (the group ID)
+      // For individual messages: use message.key.remoteJid (the individual chat ID)
+      const chatId = message.key.remoteJid;
+      const isFromMe = message.key.fromMe || false;
+      
+      // Get message content
+      const messageContent = message.message;
+      const hasMedia = !!(messageContent?.imageMessage || messageContent?.videoMessage || 
+                         messageContent?.audioMessage || messageContent?.documentMessage);
+      const body = messageContent?.conversation || 
+                   messageContent?.extendedTextMessage?.text || 
+                   messageContent?.imageMessage?.caption ||
+                   messageContent?.videoMessage?.caption ||
+                   '';
       
       // Debug logging for all incoming messages
-      Logger.info(`WhatsApp message received from: ${message.from}${isFromMe ? ' (sent by me)' : ''}`, {
-        type: message.type,
-        hasMedia: message.hasMedia,
-        body: message.body ? message.body.substring(0, 100) : 'no body',
+      Logger.info(`WhatsApp message received from: ${message.key.remoteJid}${isFromMe ? ' (sent by me)' : ''}`, {
+        type: Object.keys(messageContent || {})[0] || 'unknown',
+        hasMedia: hasMedia,
+        body: body ? body.substring(0, 100) : 'no body',
         fromMe: isFromMe,
         chatId: chatId,
         isGroup: chatId.includes('@g.us'),
-        to: message.to,
-        from: message.from,
-        id: message.id ? message.id._serialized : 'no-id'
+        id: message.key.id
       });
       
       const isMonitored = await this.baserowService.isChatMonitored(chatId);
@@ -622,15 +545,23 @@ class WhatsAppMessageHandler {
   async processMessage(message) {
     try {
       // Determine the chat ID to use for Discord channel lookup
-      // For group messages: use message.to (the group ID)
-      // For individual messages: use message.from (the individual chat ID)
-      const chatId = message.to && message.to.includes('@g.us') ? message.to : message.from;
+      const chatId = message.key.remoteJid;
+      
+      // Get message content
+      const messageContent = message.message;
+      const hasMedia = !!(messageContent?.imageMessage || messageContent?.videoMessage || 
+                         messageContent?.audioMessage || messageContent?.documentMessage);
+      const body = messageContent?.conversation || 
+                   messageContent?.extendedTextMessage?.text || 
+                   messageContent?.imageMessage?.caption ||
+                   messageContent?.videoMessage?.caption ||
+                   '';
       
       Logger.info('Processing WhatsApp message:', {
-        from: message.from,
-        type: message.type,
-        hasMedia: message.hasMedia,
-        body: message.body ? message.body.substring(0, 100) : 'no body',
+        from: message.key.remoteJid,
+        type: Object.keys(messageContent || {})[0] || 'unknown',
+        hasMedia: hasMedia,
+        body: body ? body.substring(0, 100) : 'no body',
         chatId: chatId
       });
       
@@ -650,44 +581,66 @@ class WhatsAppMessageHandler {
       }
       
       // Format the message for Discord
-      const isFromMe = message.fromMe || false;
-      const senderName = isFromMe ? 'You' : (message._data.notifyName || 'Unknown');
-      const timestamp = new Date(message.timestamp * 1000).toLocaleString();
+      const isFromMe = message.key.fromMe || false;
+      const senderName = isFromMe ? 'You' : (message.pushName || 'Unknown');
+      const timestamp = new Date(message.messageTimestamp * 1000).toLocaleString();
       
       // Handle different message types
-      if (message.hasMedia) {
+      if (hasMedia) {
         // Handle media messages
         try {
           Logger.info('Downloading media from WhatsApp message...');
-          const media = await message.downloadMedia();
           
-          if (media && media.data) {
-            Logger.info(`Media downloaded: ${media.mimetype}, size: ${media.data.length} bytes`);
-            
-            // Convert base64 data to buffer for Discord
-            const mediaBuffer = Buffer.from(media.data, 'base64');
-            
-            const attachment = {
-              attachment: mediaBuffer,
-              name: media.filename || `media.${media.mimetype.split('/')[1] || 'bin'}`
-            };
-            
-            const discordMessage = `**${senderName}** *(${timestamp})*\n📎 ${media.mimetype} file`;
-            
-            Logger.info('Sending media message to Discord...');
-            const sentMessage = await discordChannel.send({
-              content: discordMessage,
-              files: [attachment]
-            });
-            
-            Logger.success(`Media message sent to Discord: ${sentMessage.id}`);
-            
-            // Store in Baserow if enabled
-            if (this.config.whatsapp.storeMessages) {
-              await this.baserowService.storeWhatsAppMessage(message, sentMessage.id, this.config.discord.guildId);
-            }
-          } else {
-            Logger.warning('Media download failed or returned empty data');
+          let mediaType = 'image';
+          let mediaBuffer;
+          let filename = 'media';
+          let mimetype = 'application/octet-stream';
+          
+          if (messageContent.imageMessage) {
+            mediaType = 'image';
+            filename = 'image.jpg';
+            mimetype = 'image/jpeg';
+          } else if (messageContent.videoMessage) {
+            mediaType = 'video';
+            filename = 'video.mp4';
+            mimetype = 'video/mp4';
+          } else if (messageContent.audioMessage) {
+            mediaType = 'audio';
+            filename = 'audio.ogg';
+            mimetype = 'audio/ogg';
+          } else if (messageContent.documentMessage) {
+            mediaType = 'document';
+            filename = messageContent.documentMessage.fileName || 'document';
+            mimetype = messageContent.documentMessage.mimetype || 'application/octet-stream';
+          }
+          
+          const stream = await downloadContentFromMessage(message, mediaType);
+          const chunks = [];
+          for await (const chunk of stream) {
+            chunks.push(chunk);
+          }
+          mediaBuffer = Buffer.concat(chunks);
+          
+          Logger.info(`Media downloaded: ${mimetype}, size: ${mediaBuffer.length} bytes`);
+          
+          const attachment = {
+            attachment: mediaBuffer,
+            name: filename
+          };
+          
+          const discordMessage = `**${senderName}** *(${timestamp})*\n📎 ${mimetype} file`;
+          
+          Logger.info('Sending media message to Discord...');
+          const sentMessage = await discordChannel.send({
+            content: discordMessage,
+            files: [attachment]
+          });
+          
+          Logger.success(`Media message sent to Discord: ${sentMessage.id}`);
+          
+          // Store in Baserow if enabled
+          if (this.config.whatsapp.storeMessages) {
+            await this.baserowService.storeWhatsAppMessage(message, sentMessage.id, this.config.discord.guildId);
           }
         } catch (mediaError) {
           Logger.error('Failed to process media message:', mediaError);
@@ -698,7 +651,7 @@ class WhatsAppMessageHandler {
         }
       } else {
         // Handle text messages
-        const messageText = message.body || '[No text content]';
+        const messageText = body || '[No text content]';
         const discordMessage = `**${senderName}** *(${timestamp})*\n${messageText}`;
         
         const sentMessage = await discordChannel.send(discordMessage);

@@ -1,19 +1,9 @@
 # Use Node.js 18 Alpine for smaller image size
 FROM node:18-alpine
 
-# Install system dependencies for WhatsApp Web (Puppeteer)
+# Install system dependencies (minimal for Baileys)
 RUN apk add --no-cache \
-    chromium \
-    nss \
-    freetype \
-    freetype-dev \
-    harfbuzz \
-    ca-certificates \
-    ttf-freefont
-
-# Set Puppeteer to use the installed Chromium
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
-    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
+    ca-certificates
 
 # Set working directory
 WORKDIR /app
@@ -36,7 +26,7 @@ RUN addgroup -g 1001 -S nodejs && \
     adduser -S botuser -u 1001
 
 # Create directories for WhatsApp session persistence
-RUN mkdir -p /app/.wwebjs_auth /app/.wwebjs_cache
+RUN mkdir -p /app/auth_info_baileys
 
 # Change ownership of app directory and WhatsApp directories
 RUN chown -R botuser:nodejs /app

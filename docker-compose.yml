@@ -10,8 +10,7 @@ services:
     volumes:
       - ./logs:/app/logs
       # WhatsApp session persistence
-      - whatsapp-sessions:/app/.wwebjs_auth
-      - whatsapp-cache:/app/.wwebjs_cache
+      - whatsapp-sessions:/app/auth_info_baileys
     environment:
       - NODE_ENV=production
       # Health check configuration
@@ -40,4 +39,3 @@ networks:
 volumes:
   logs:
   whatsapp-sessions:
-  whatsapp-cache:

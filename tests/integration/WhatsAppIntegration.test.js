@@ -3,15 +3,26 @@ const BaserowService = require('../../services/BaserowService');
 const Logger = require('../../utils/logger');
 
 // Mock external dependencies
-jest.mock('whatsapp-web.js', () => ({
-    Client: jest.fn().mockImplementation(() => ({
-        initialize: jest.fn().mockResolvedValue(),
-        on: jest.fn(),
-        getState: jest.fn().mockResolvedValue('CONNECTED'),
-        destroy: jest.fn().mockResolvedValue()
+jest.mock('@whiskeysockets/baileys', () => ({
+    default: jest.fn().mockImplementation(() => ({
+        ev: {
+            on: jest.fn()
+        },
+        user: { id: 'test-user' },
+        logout: jest.fn().mockResolvedValue()
     })),
-    LocalAuth: jest.fn().mockImplementation(() => ({})),
-    MessageMedia: jest.fn()
+    DisconnectReason: {
+        loggedOut: 515
+    },
+    useMultiFileAuthState: jest.fn().mockResolvedValue({
+        state: { creds: { me: { id: 'test-user' } } },
+        saveCreds: jest.fn()
+    }),
+    downloadContentFromMessage: jest.fn().mockResolvedValue({
+        [Symbol.asyncIterator]: async function* () {
+            yield Buffer.from('mock-media-data');
+        }
+    })
 }));
 
 jest.mock('crypto-js', () => ({

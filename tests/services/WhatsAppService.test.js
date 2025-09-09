@@ -1,16 +1,27 @@
 const WhatsAppService = require('../../services/WhatsAppService');
 const Logger = require('../../utils/logger');
 
-// Mock the whatsapp-web.js module
-jest.mock('whatsapp-web.js', () => ({
-    Client: jest.fn().mockImplementation(() => ({
-        initialize: jest.fn().mockResolvedValue(),
-        on: jest.fn(),
-        getState: jest.fn().mockResolvedValue('CONNECTED'),
-        destroy: jest.fn().mockResolvedValue()
+// Mock the @whiskeysockets/baileys module
+jest.mock('@whiskeysockets/baileys', () => ({
+    default: jest.fn().mockImplementation(() => ({
+        ev: {
+            on: jest.fn()
+        },
+        user: { id: 'test-user' },
+        logout: jest.fn().mockResolvedValue()
     })),
-    LocalAuth: jest.fn().mockImplementation(() => ({})),
-    MessageMedia: jest.fn()
+    DisconnectReason: {
+        loggedOut: 515
+    },
+    useMultiFileAuthState: jest.fn().mockResolvedValue({
+        state: { creds: { me: { id: 'test-user' } } },
+        saveCreds: jest.fn()
+    }),
+    downloadContentFromMessage: jest.fn().mockResolvedValue({
+        [Symbol.asyncIterator]: async function* () {
+            yield Buffer.from('mock-media-data');
+        }
+    })
 }));
 
 // Mock crypto-js
@@ -33,7 +44,7 @@ jest.mock('fs', () => ({
 }));
 
 jest.mock('path', () => ({
-    join: jest.fn().mockReturnValue('/mock/path/session-frijolebot-whatsapp')
+    join: jest.fn().mockReturnValue('/mock/path/auth_info_baileys')
 }));
 
 // Mock BaserowService
@@ -84,7 +95,7 @@ describe('WhatsAppService', () => {
             whatsappService = new WhatsAppService(mockConfig);
             
             expect(whatsappService.config).toBe(mockConfig);
-            expect(whatsappService.client).toBeNull();
+            expect(whatsappService.sock).toBeNull();
             expect(whatsappService.isConnected).toBe(false);
             expect(whatsappService.isInitialized).toBe(false);
             expect(whatsappService.encryptionKey).toBe('test-encryption-key-32-characters');
@@ -121,8 +132,8 @@ describe('WhatsAppService', () => {
         test('should return connection status when initialized but not connected', () => {
             whatsappService = new WhatsAppService(mockConfig);
             whatsappService.isInitialized = true;
-            whatsappService.client = {
-                getState: jest.fn().mockResolvedValue('DISCONNECTED')
+            whatsappService.sock = {
+                user: { id: 'test-user' }
             };
             
             const status = whatsappService.getConnectionStatus();
@@ -138,8 +149,8 @@ describe('WhatsAppService', () => {
     describe('destroy', () => {
         test('should destroy service cleanly', async () => {
             whatsappService = new WhatsAppService(mockConfig);
-            whatsappService.client = {
-                destroy: jest.fn().mockResolvedValue()
+            whatsappService.sock = {
+                logout: jest.fn().mockResolvedValue()
             };
             whatsappService.isConnected = true;
             whatsappService.isInitialized = true;
@@ -148,12 +159,12 @@ describe('WhatsAppService', () => {
             
             expect(whatsappService.isConnected).toBe(false);
             expect(whatsappService.isInitialized).toBe(false);
-            expect(whatsappService.client.destroy).toHaveBeenCalled();
+            expect(whatsappService.sock.logout).toHaveBeenCalled();
         });
 
-        test('should handle destroy when client is null', async () => {
+        test('should handle destroy when sock is null', async () => {
             whatsappService = new WhatsAppService(mockConfig);
-            whatsappService.client = null;
+            whatsappService.sock = null;
             
             await expect(whatsappService.destroy()).resolves.not.toThrow();
         });
