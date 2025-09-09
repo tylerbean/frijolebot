@@ -691,22 +691,34 @@ class WhatsAppMessageHandler {
           let filename = 'media';
           let mimetype = 'application/octet-stream';
           
+          let mediaMessage = null;
+          
           if (messageContent.imageMessage) {
             mediaType = 'image';
+            mediaMessage = messageContent.imageMessage;
             filename = 'image.jpg';
             mimetype = 'image/jpeg';
           } else if (messageContent.videoMessage) {
             mediaType = 'video';
+            mediaMessage = messageContent.videoMessage;
             filename = 'video.mp4';
             mimetype = 'video/mp4';
           } else if (messageContent.audioMessage) {
             mediaType = 'audio';
+            mediaMessage = messageContent.audioMessage;
             filename = 'audio.ogg';
             mimetype = 'audio/ogg';
           } else if (messageContent.documentMessage) {
             mediaType = 'document';
+            mediaMessage = messageContent.documentMessage;
             filename = messageContent.documentMessage.fileName || 'document';
             mimetype = messageContent.documentMessage.mimetype || 'application/octet-stream';
+          }
+          
+          // Check if media message has required key information
+          if (!mediaMessage || !mediaMessage.url || !mediaMessage.mediaKey) {
+            Logger.warning(`Media message missing required key information: ${JSON.stringify(mediaMessage)}`);
+            throw new Error('Media message missing required key information');
           }
           
           const stream = await downloadContentFromMessage(message, mediaType);
