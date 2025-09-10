@@ -2,9 +2,9 @@ const http = require('http');
 const Logger = require('../utils/logger');
 
 class HealthCheckService {
-    constructor(discordClient, baserowService, config) {
+    constructor(discordClient, postgresService, config) {
         this.discordClient = discordClient;
-        this.baserowService = baserowService;
+        this.postgresService = postgresService;
         this.config = config;
         this.server = null;
         this.port = config.health.port;
@@ -146,7 +146,7 @@ class HealthCheckService {
     async performHealthChecks() {
         const checks = {
             discord: await this.checkDiscordConnection(),
-            baserow: await this.checkBaserowConnection(),
+            postgres: await this.checkPostgreSQLConnection(),
             memory: this.checkMemoryUsage(),
             uptime: this.checkUptime()
         };
@@ -186,12 +186,12 @@ class HealthCheckService {
     }
 
     /**
-     * Check Baserow API connection
+     * Check PostgreSQL database connection
      */
-    async checkBaserowConnection() {
+    async checkPostgreSQLConnection() {
         try {
-            // Try to make a simple API call to Baserow
-            const response = await this.baserowService.testConnection();
+            // Try to make a simple connection test to PostgreSQL
+            const response = await this.postgresService.testConnection();
             
             return {
                 connected: true,
@@ -201,13 +201,13 @@ class HealthCheckService {
                     links: {
                         connected: response.tables.links.success,
                         response_time: response.tables.links.responseTime,
-                        api_url: this.baserowService.linksApiUrl,
+                        database: this.postgresService.pool.options.database,
                         data_count: response.tables.links.dataCount || 0
                     },
                     dmMapping: {
                         connected: response.tables.dmMapping.success,
                         response_time: response.tables.dmMapping.responseTime,
-                        api_url: this.baserowService.dmMappingApiUrl,
+                        database: this.postgresService.pool.options.database,
                         data_count: response.tables.dmMapping.dataCount || 0
                     }
                 }
@@ -220,11 +220,11 @@ class HealthCheckService {
                 tables: {
                     links: {
                         connected: false,
-                        api_url: this.baserowService.linksApiUrl
+                        database: this.postgresService.pool.options.database
                     },
                     dmMapping: {
                         connected: false,
-                        api_url: this.baserowService.dmMappingApiUrl
+                        database: this.postgresService.pool.options.database
                     }
                 }
             };

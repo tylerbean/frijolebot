@@ -4,18 +4,16 @@ require('dotenv').config();
 const requiredEnvVars = [
     'DISCORD_BOT_TOKEN',
     'DISCORD_GUILD_ID',
-    'BASEROW_API_TOKEN',
-    'BASEROW_API_URL',
-    'BASEROW_LINKS_TABLE_ID',
-    'BASEROW_DM_MAPPING_TABLE_ID'
+    'POSTGRES_HOST',
+    'POSTGRES_PORT',
+    'POSTGRES_USER',
+    'POSTGRES_PASSWORD',
+    'POSTGRES_DATABASE'
 ];
 
 // WhatsApp environment variables (required if WhatsApp is enabled)
 const whatsappEnvVars = [
-    'WHATSAPP_SESSION_ENCRYPTION_KEY',
-    'BASEROW_WHATSAPP_SESSIONS_TABLE_ID',
-    'BASEROW_WHATSAPP_CHATS_TABLE_ID',
-    'BASEROW_WHATSAPP_MESSAGES_TABLE_ID'
+    'WHATSAPP_SESSION_ENCRYPTION_KEY'
 ];
 
 // Check for missing required environment variables
@@ -49,14 +47,13 @@ module.exports = {
         channelsToMonitor: channelIds,
         adminChannelId: process.env.DISCORD_ADMIN_CHANNEL
     },
-    baserow: {
-        apiToken: process.env.BASEROW_API_TOKEN,
-        apiUrl: process.env.BASEROW_API_URL,
-        linksTableId: process.env.BASEROW_LINKS_TABLE_ID,
-        dmMappingTableId: process.env.BASEROW_DM_MAPPING_TABLE_ID,
-        whatsappSessionsTableId: process.env.BASEROW_WHATSAPP_SESSIONS_TABLE_ID,
-        whatsappChatsTableId: process.env.BASEROW_WHATSAPP_CHATS_TABLE_ID,
-        whatsappMessagesTableId: process.env.BASEROW_WHATSAPP_MESSAGES_TABLE_ID
+    postgres: {
+        host: process.env.POSTGRES_HOST,
+        port: parseInt(process.env.POSTGRES_PORT) || 5432,
+        user: process.env.POSTGRES_USER,
+        password: process.env.POSTGRES_PASSWORD,
+        database: process.env.POSTGRES_DATABASE,
+        ssl: process.env.POSTGRES_SSL === 'true' ? { rejectUnauthorized: false } : false
     },
     app: {
         nodeEnv: process.env.NODE_ENV || 'development'

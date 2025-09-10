@@ -3,7 +3,7 @@ async function main() {
   // Dynamic imports to handle ES module compatibility
   const { Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes, Partials, MessageFlags } = await import('discord.js');
   const config = require('./config');
-  const BaserowService = require('./services/BaserowService');
+  const PostgreSQLService = require('./services/PostgreSQLService');
   const HealthCheckService = require('./services/HealthCheckService');
   const WhatsAppService = require('./services/WhatsAppService');
   const MessageHandler = require('./handlers/messageHandler');
@@ -15,15 +15,10 @@ Logger.startup('Bot starting...');
 Logger.startup(`Monitoring ${config.discord.channelsToMonitor.length} channels`);
 
 // Initialize services
-const baserowService = new BaserowService(
-    config.baserow.apiToken, 
-    config.baserow.apiUrl, 
-    config.baserow.linksTableId, 
-    config.baserow.dmMappingTableId,
-    config.baserow.whatsappSessionsTableId,
-    config.baserow.whatsappChatsTableId,
-    config.baserow.whatsappMessagesTableId
-);
+const postgresService = new PostgreSQLService(config.postgres);
+
+// Initialize database schema
+await postgresService.initializeDatabase();
 
 // Create Discord client
 const client = new Client({
@@ -43,8 +38,8 @@ const client = new Client({
 });
 
 // Initialize handlers (CommandHandler needs client, so it's initialized later)
-const reactionHandler = new ReactionHandler(baserowService, config);
-const messageHandler = new MessageHandler(baserowService);
+const reactionHandler = new ReactionHandler(postgresService, config);
+const messageHandler = new MessageHandler(postgresService);
 let commandHandler; // Will be initialized after client is ready
 let healthCheckService; // Will be initialized after client is ready
 let whatsappService; // Will be initialized after client is ready
@@ -84,10 +79,10 @@ async function executeReadyLogic() {
     Logger.startup(`Monitoring ${config.discord.channelsToMonitor.length} channels in guild ${config.discord.guildId}`);
     
     // Initialize CommandHandler with Discord client
-    commandHandler = new CommandHandler(baserowService, reactionHandler, config, client);
+    commandHandler = new CommandHandler(postgresService, reactionHandler, config, client);
     
     // Initialize and start health check service
-    healthCheckService = new HealthCheckService(client, baserowService, config);
+    healthCheckService = new HealthCheckService(client, postgresService, config);
     healthCheckService.start();
     
     // Initialize WhatsApp service if enabled
@@ -95,7 +90,7 @@ async function executeReadyLogic() {
     if (config.whatsapp.enabled) {
       try {
         Logger.info('Creating WhatsApp service...');
-        whatsappService = new WhatsAppService(config, client);
+        whatsappService = new WhatsAppService(config, client, postgresService);
         Logger.info('WhatsApp service created, initializing...');
         await whatsappService.initialize();
         Logger.success('WhatsApp service initialized successfully');
@@ -242,7 +237,7 @@ process.on('SIGTERM', async () => {
 // Cleanup job for expired DM mappings (run every hour)
 setInterval(async () => {
     try {
-        const cleanupCount = await baserowService.cleanupExpiredDMMappings();
+        const cleanupCount = await postgresService.cleanupExpiredDMMappings();
         if (cleanupCount > 0) {
             Logger.info(`Cleanup job: Removed ${cleanupCount} expired DM mappings`);
         }
@@ -258,7 +253,7 @@ setInterval(async () => {
       // In test mode, start health check service even if Discord fails
       if (config.app.nodeEnv === 'test') {
           Logger.startup('Test mode: Starting health check service despite Discord auth failure');
-          healthCheckService = new HealthCheckService(null, baserowService, config);
+          healthCheckService = new HealthCheckService(null, postgresService, config);
           healthCheckService.start();
           
           // Keep the process alive for health checks

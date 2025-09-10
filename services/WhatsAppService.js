@@ -4,17 +4,17 @@ const fs = require('fs');
 const path = require('path');
 const QRCode = require('qrcode');
 const Logger = require('../utils/logger');
-const BaserowService = require('./BaserowService');
+// BaserowService no longer needed - using PostgreSQL
 
 class WhatsAppService {
-  constructor(config, discordClient = null) {
+  constructor(config, discordClient = null, postgresService = null) {
     this.config = config;
     this.discordClient = discordClient;
     this.sock = null;
     this.isConnected = false;
     this.isInitialized = false;
     this.sessionManager = null;
-    this.baserowService = null;
+    this.postgresService = null;
     this.messageHandler = null;
     this.encryptionKey = config.whatsapp.sessionEncryptionKey;
     this.baileys = null; // Will store dynamically imported Baileys functions
@@ -42,22 +42,14 @@ class WhatsAppService {
       // Load Baileys library first
       await this.loadBaileys();
       
-      // Initialize Baserow service for WhatsApp tables
-      this.baserowService = new BaserowService(
-        this.config.baserow.apiToken,
-        this.config.baserow.apiUrl,
-        this.config.baserow.linksTableId,
-        this.config.baserow.dmMappingTableId,
-        this.config.baserow.whatsappSessionsTableId,
-        this.config.baserow.whatsappChatsTableId,
-        this.config.baserow.whatsappMessagesTableId
-      );
+      // Use provided PostgreSQL service
+      this.postgresService = postgresService;
 
       // Initialize session manager
-      this.sessionManager = new WhatsAppSessionManager(this.baserowService, this.encryptionKey, this.discordClient, this.config);
+      this.sessionManager = new WhatsAppSessionManager(this.postgresService, this.encryptionKey, this.discordClient, this.config);
       
       // Initialize message handler
-      this.messageHandler = new WhatsAppMessageHandler(this.baserowService, this.discordClient, this.config, this);
+      this.messageHandler = new WhatsAppMessageHandler(this.postgresService, this.discordClient, this.config, this);
       
       // Initialize WhatsApp client
       await this.initializeClient();
@@ -340,7 +332,7 @@ class WhatsAppService {
       Logger.info('Starting WhatsApp message monitoring...');
       
       // Get active chats from Baserow
-      const activeChats = await this.baserowService.getActiveChats();
+      const activeChats = await this.postgresService.getActiveChats();
       Logger.info(`Monitoring ${activeChats.length} active chats`);
       
       // Set up periodic health checks
@@ -407,8 +399,8 @@ class WhatsAppService {
 
 // Session Manager Class
 class WhatsAppSessionManager {
-  constructor(baserowService, encryptionKey, discordClient, config) {
-    this.baserowService = baserowService;
+  constructor(postgresService, encryptionKey, discordClient, config) {
+    this.postgresService = postgresService;
     this.encryptionKey = encryptionKey;
     this.discordClient = discordClient;
     this.config = config;
@@ -420,7 +412,7 @@ class WhatsAppSessionManager {
 
   async getActiveSession() {
     try {
-      const session = await this.baserowService.getActiveWhatsAppSession();
+      const session = await this.postgresService.getActiveWhatsAppSession();
       if (session) {
         Logger.debug('Found active session in Baserow');
         // Set the current session ID to the found session
@@ -469,7 +461,7 @@ class WhatsAppSessionManager {
         client_ready: true
       });
       
-      await this.baserowService.saveWhatsAppSession(this.currentSessionId, sessionData, 'active', 'frijolebot-whatsapp');
+      await this.postgresService.saveWhatsAppSession(this.currentSessionId, sessionData, 'active', 'frijolebot-whatsapp');
       Logger.info(`Session saved to Baserow: ${this.currentSessionId}`);
     } catch (error) {
       Logger.error('Failed to save session:', error);
@@ -479,7 +471,7 @@ class WhatsAppSessionManager {
   async updateSessionStatus(status) {
     try {
       if (this.currentSessionId) {
-        await this.baserowService.updateWhatsAppSessionStatus(this.currentSessionId, status);
+        await this.postgresService.updateWhatsAppSessionStatus(this.currentSessionId, status);
         Logger.info(`Session status updated to: ${status}`);
       } else {
         Logger.warning('No current session ID available for status update');
@@ -783,8 +775,8 @@ class WhatsAppSessionManager {
 
 // Message Handler Class
 class WhatsAppMessageHandler {
-  constructor(baserowService, discordClient, config, whatsappService) {
-    this.baserowService = baserowService;
+  constructor(postgresService, discordClient, config, whatsappService) {
+    this.postgresService = postgresService;
     this.discordClient = discordClient;
     this.config = config;
     this.whatsappService = whatsappService;
@@ -832,7 +824,7 @@ class WhatsAppMessageHandler {
         id: message.key.id
       });
       
-      const isMonitored = await this.baserowService.isChatMonitored(chatId);
+      const isMonitored = await this.postgresService.isChatMonitored(chatId);
       
       if (!isMonitored) {
         Logger.debug(`Chat ${chatId} is not monitored, ignoring message`);
@@ -873,7 +865,7 @@ class WhatsAppMessageHandler {
       });
       
       // Get the Discord channel for this WhatsApp chat
-      const discordChannelId = await this.baserowService.getDiscordChannelForChat(chatId);
+      const discordChannelId = await this.postgresService.getDiscordChannelForChat(chatId);
       
       if (!discordChannelId) {
         Logger.warning(`No Discord channel configured for WhatsApp chat: ${chatId}`);
@@ -1013,7 +1005,7 @@ class WhatsAppMessageHandler {
           
           // Store in Baserow if enabled
           if (this.config.whatsapp.storeMessages) {
-            await this.baserowService.storeWhatsAppMessage(message, sentMessage.id, this.config.discord.guildId);
+            await this.postgresService.storeWhatsAppMessage(message, sentMessage.id, this.config.discord.guildId);
           }
         } catch (mediaError) {
           Logger.error('Failed to process media message:', mediaError);
@@ -1033,7 +1025,7 @@ class WhatsAppMessageHandler {
         
         // Store in Baserow if enabled
         if (this.config.whatsapp.storeMessages) {
-          await this.baserowService.storeWhatsAppMessage(message, sentMessage.id, this.config.discord.guildId);
+          await this.postgresService.storeWhatsAppMessage(message, sentMessage.id, this.config.discord.guildId);
         }
       }
       
