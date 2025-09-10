@@ -807,7 +807,13 @@ class WhatsAppSessionManager {
   async handleAuthFailure(msg) {
     try {
       this.consecutiveAuthFailures++;
-      Logger.error(`Authentication failed (attempt ${this.consecutiveAuthFailures}/${this.maxAuthFailures}):`, msg);
+      
+      // Only log authentication failed if QR was not requested on-demand
+      if (!this.whatsappService || !this.whatsappService.qrRequestedOnDemand) {
+        Logger.error(`Authentication failed (attempt ${this.consecutiveAuthFailures}/${this.maxAuthFailures}):`, msg);
+      } else {
+        Logger.info(`Authentication reset for fresh QR generation (attempt ${this.consecutiveAuthFailures}/${this.maxAuthFailures}):`, msg);
+      }
       
       await this.updateSessionStatus('failed');
       
