@@ -284,17 +284,31 @@ class WhatsAppService {
             }
             
             // Send Discord alert if available (but not if QR was requested on-demand or shutting down)
+            Logger.debug('🔍 [MAIN SERVICE] Discord alert check:', {
+              hasDiscordClient: !!this.discordClient,
+              hasAdminChannel: !!this.config.discord.adminChannelId,
+              qrRequestedOnDemand: this.qrRequestedOnDemand,
+              isShuttingDown: this.isShuttingDown,
+              willSendAlert: !!(this.discordClient && this.config.discord.adminChannelId && !this.qrRequestedOnDemand && !this.isShuttingDown)
+            });
+            
             if (this.discordClient && this.config.discord.adminChannelId && !this.qrRequestedOnDemand && !this.isShuttingDown) {
+              Logger.error('🚨 [MAIN SERVICE] SENDING Discord authentication failed message!');
               try {
                 const channel = this.discordClient.channels.cache.get(this.config.discord.adminChannelId);
                 if (channel) {
                   await channel.send(`❌ **WhatsApp Authentication Failed**\nAuthentication failed: Logged out (attempt ${this.consecutiveAuthFailures}/${this.maxAuthFailures})`);
+                  Logger.error('🚨 [MAIN SERVICE] Discord message SENT!');
                 }
               } catch (discordError) {
                 Logger.error('Failed to send Discord alert:', discordError);
               }
             } else if (this.qrRequestedOnDemand) {
-              Logger.info('Skipping authentication failed message - QR was requested on-demand');
+              Logger.info('✅ [MAIN SERVICE] Skipping authentication failed message - QR was requested on-demand');
+            } else if (this.isShuttingDown) {
+              Logger.info('✅ [MAIN SERVICE] Skipping authentication failed message - shutting down');
+            } else {
+              Logger.info('✅ [MAIN SERVICE] Skipping authentication failed message - Discord not available');
             }
           } catch (error) {
             Logger.error('Error in dynamic session recovery:', error);
@@ -554,12 +568,14 @@ class WhatsAppService {
       
       // Set flag to indicate QR was requested on-demand
       this.qrRequestedOnDemand = true;
-      Logger.debug('Set qrRequestedOnDemand flag to true');
+      Logger.error('🔥 [FLAG SET] Main service qrRequestedOnDemand = true');
       
       // IMPORTANT: Set the flag in session manager too, before logout
       if (this.sessionManager) {
         this.sessionManager.qrRequestedOnDemand = true;
-        Logger.debug('Set qrRequestedOnDemand flag in session manager too');
+        Logger.error('🔥 [FLAG SET] Session manager qrRequestedOnDemand = true');
+      } else {
+        Logger.error('🔥 [FLAG SET] WARNING: No session manager available!');
       }
       
       // Always generate a fresh QR code to ensure it's not expired
@@ -855,10 +871,19 @@ class WhatsAppSessionManager {
       }
       
       // Only send Discord alert if QR was not requested on-demand (check both local and main service flags)
+      Logger.debug('🔍 [SESSION MANAGER] Discord alert check:', {
+        localQrFlag: this.qrRequestedOnDemand,
+        hasMainService: !!this.whatsappService,
+        mainQrFlag: this.whatsappService ? this.whatsappService.qrRequestedOnDemand : 'N/A',
+        willSendAlert: !this.qrRequestedOnDemand && (!this.whatsappService || !this.whatsappService.qrRequestedOnDemand)
+      });
+      
       if (!this.qrRequestedOnDemand && (!this.whatsappService || !this.whatsappService.qrRequestedOnDemand)) {
+        Logger.error('🚨 [SESSION MANAGER] SENDING Discord authentication failed message!');
         await this.sendDiscordAlert('❌ **WhatsApp Authentication Failed**', `Authentication failed: ${msg} (attempt ${this.consecutiveAuthFailures}/${this.maxAuthFailures})`);
+        Logger.error('🚨 [SESSION MANAGER] Discord message SENT!');
       } else {
-        Logger.info('Skipping authentication failed Discord alert - QR was requested on-demand');
+        Logger.info('✅ [SESSION MANAGER] Skipping authentication failed Discord alert - QR was requested on-demand');
       }
     } catch (error) {
       Logger.error('Failed to handle auth failure:', error);
