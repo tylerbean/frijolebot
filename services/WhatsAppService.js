@@ -363,6 +363,11 @@ class WhatsAppService {
       }
       Logger.info(`Monitoring ${activeChats.length} active chats`);
       
+      // Send summary of monitored chats to admin channel
+      if (activeChats.length > 0) {
+        await this.sendChatMonitoringSummary(activeChats);
+      }
+      
       // Set up periodic health checks
       setInterval(async () => {
         await this.checkConnectionHealth();
@@ -541,6 +546,83 @@ class WhatsAppService {
       Logger.info(`Admin notification sent: ${message}`);
     } catch (error) {
       Logger.error('Failed to send admin notification:', error);
+    }
+  }
+
+  /**
+   * Get display name for a WhatsApp chat (name if available, otherwise ID)
+   * @param {string} chatId - WhatsApp chat ID
+   * @returns {Promise<string>} Display name for the chat
+   */
+  async getChatDisplayName(chatId) {
+    try {
+      if (this.postgresService && typeof this.postgresService.getChatById === 'function') {
+        const chatDetails = await this.postgresService.getChatById(chatId);
+        if (chatDetails && chatDetails.chat_name) {
+          return chatDetails.chat_name;
+        }
+      }
+    } catch (error) {
+      Logger.error('Error getting chat display name:', error);
+    }
+    
+    // Fallback to chat ID if name not found
+    return chatId;
+  }
+
+  /**
+   * Send summary of monitored WhatsApp chats to admin channel
+   * @param {Array} activeChats - Array of active chat configurations
+   */
+  async sendChatMonitoringSummary(activeChats) {
+    try {
+      if (!this.discordClient || !this.discordClient.isReady()) {
+        Logger.warning('Discord client not ready, cannot send chat summary');
+        return;
+      }
+
+      const adminChannelId = this.config.discord.adminChannelId;
+      if (!adminChannelId) {
+        Logger.warning('No admin channel configured, cannot send chat summary');
+        return;
+      }
+
+      const adminChannel = this.discordClient.channels.cache.get(adminChannelId);
+      if (!adminChannel) {
+        Logger.warning(`Admin channel ${adminChannelId} not found`);
+        return;
+      }
+
+      // Build summary message
+      let summaryMessage = '📱 **WhatsApp Chat Monitoring Summary**\n\n';
+      
+      if (activeChats.length === 0) {
+        summaryMessage += 'No WhatsApp chats are currently being monitored.';
+      } else {
+        summaryMessage += `Monitoring **${activeChats.length}** WhatsApp chat(s):\n\n`;
+        
+        for (const chat of activeChats) {
+          // Get Discord channel name if possible
+          let discordChannelName = `Channel ${chat.discord_channel_id}`;
+          try {
+            const discordChannel = this.discordClient.channels.cache.get(chat.discord_channel_id);
+            if (discordChannel) {
+              discordChannelName = `#${discordChannel.name}`;
+            }
+          } catch (error) {
+            // Use fallback name if channel lookup fails
+          }
+          
+          summaryMessage += `• **${chat.chat_name}**\n`;
+          summaryMessage += `  └ WhatsApp: \`${chat.chat_id}\`\n`;
+          summaryMessage += `  └ Discord: ${discordChannelName}\n\n`;
+        }
+      }
+
+      await adminChannel.send(summaryMessage);
+      Logger.info(`Chat monitoring summary sent: ${activeChats.length} chats`);
+    } catch (error) {
+      Logger.error('Failed to send chat monitoring summary:', error);
     }
   }
 
@@ -994,13 +1076,15 @@ class WhatsAppMessageHandler {
       // Ignore system notification messages
       if (message.message?.protocolMessage?.type === 'REVOKE' || 
           message.message?.protocolMessage?.type === 'EPHEMERAL_SETTING') {
-        Logger.debug(`Ignoring system message from ${message.key.remoteJid}`);
+        const chatDisplayName = await this.getChatDisplayName(message.key.remoteJid);
+        Logger.debug(`Ignoring system message from ${chatDisplayName}`);
         return;
       }
       
       // Ignore sender key distribution messages (encryption setup)
       if (message.message?.senderKeyDistributionMessage) {
-        Logger.debug(`Ignoring sender key distribution message from ${message.key.remoteJid}`);
+        const chatDisplayName = await this.getChatDisplayName(message.key.remoteJid);
+        Logger.debug(`Ignoring sender key distribution message from ${chatDisplayName}`);
         return;
       }
       
@@ -1020,13 +1104,17 @@ class WhatsAppMessageHandler {
                    messageContent?.videoMessage?.caption ||
                    '';
       
+      // Get chat display name for logging
+      const chatDisplayName = await this.getChatDisplayName(chatId);
+      
       // Debug logging for all incoming messages
-      Logger.info(`WhatsApp message received from: ${message.key.remoteJid}${isFromMe ? ' (sent by me)' : ''}`, {
+      Logger.info(`WhatsApp message received from: ${chatDisplayName}${isFromMe ? ' (sent by me)' : ''}`, {
         type: Object.keys(messageContent || {})[0] || 'unknown',
         hasMedia: hasMedia,
         body: body ? body.substring(0, 100) : 'no body',
         fromMe: isFromMe,
         chatId: chatId,
+        chatName: chatDisplayName,
         isGroup: chatId.includes('@g.us'),
         id: message.key.id
       });
@@ -1034,11 +1122,11 @@ class WhatsAppMessageHandler {
       const isMonitored = await this.postgresService.isChatMonitored(chatId);
       
       if (!isMonitored) {
-        Logger.debug(`Chat ${chatId} is not monitored, ignoring message`);
+        Logger.debug(`Chat ${chatDisplayName} is not monitored, ignoring message`);
         return; // Ignore messages from non-monitored chats
       }
 
-      Logger.info(`✅ Received message from monitored chat: ${chatId}${isFromMe ? ' (sent by me)' : ''}`);
+      Logger.info(`✅ Received message from monitored chat: ${chatDisplayName}${isFromMe ? ' (sent by me)' : ''}`);
       
       // Process the message
       await this.processMessage(message);
