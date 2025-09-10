@@ -178,7 +178,7 @@ class WhatsAppService {
     
       // Connection updates (includes QR, ready, disconnected states)
       this.sock.ev.on('connection.update', async (update) => {
-        const { connection, lastDisconnect, qr } = update;
+        const { connection, lastDisconnect, qr, isNewLogin } = update;
         Logger.info('WhatsApp connection update:', { 
           connection, 
           hasQR: !!qr, 
@@ -217,10 +217,10 @@ class WhatsAppService {
         await this.sessionManager.updateSessionStatus('active');
         // Notify admin once on successful authentication (new or restored)
         try {
-          await this.sendAdminNotification(
-            'Authenticated successfully. WhatsApp is connected and ready.',
-            'info'
-          );
+          const successMsg = isNewLogin === true
+            ? 'Authenticated successfully (new session). WhatsApp is connected and ready.'
+            : 'Authenticated successfully (restored session). WhatsApp is connected and ready.';
+          await this.sendAdminNotification(successMsg, 'info');
         } catch (notifyError) {
           Logger.error('Failed to send success authentication notification:', notifyError);
         }

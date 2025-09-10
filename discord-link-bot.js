@@ -82,6 +82,22 @@ async function executeReadyLogic() {
     Logger.info('Ready event fired!');
     Logger.success(`Bot logged in as ${client.user.tag}`);
     Logger.startup(`Monitoring ${config.discord.channelsToMonitor.length} channels in guild ${config.discord.guildId}`);
+    // Send admin startup message and channel summary
+    try {
+        const adminChannel = client.channels.cache.get(config.discord.adminChannelId);
+        if (adminChannel) {
+            await adminChannel.send(`🟢 **FrijoleBot started** on ${new Date().toISOString()}`);
+            const lines = config.discord.channelsToMonitor.map(id => {
+                const ch = client.channels.cache.get(id);
+                return ch ? `- #${ch.name} (${id})` : `- (unavailable) ${id}`;
+            });
+            await adminChannel.send(`🧭 **Monitoring channels:**\n${lines.join('\n')}`);
+        } else {
+            Logger.warning('Admin channel not found; startup messages not sent');
+        }
+    } catch (e) {
+        Logger.error('Failed to send startup admin messages:', e);
+    }
     
     // Initialize CommandHandler with Discord client
     commandHandler = new CommandHandler(postgresService, reactionHandler, config, client);
