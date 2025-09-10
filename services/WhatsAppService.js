@@ -556,6 +556,12 @@ class WhatsAppService {
       this.qrRequestedOnDemand = true;
       Logger.debug('Set qrRequestedOnDemand flag to true');
       
+      // IMPORTANT: Set the flag in session manager too, before logout
+      if (this.sessionManager) {
+        this.sessionManager.qrRequestedOnDemand = true;
+        Logger.debug('Set qrRequestedOnDemand flag in session manager too');
+      }
+      
       // Always generate a fresh QR code to ensure it's not expired
       // Clear any existing session to force QR generation
       await this.sessionManager.clearLocalSession();
@@ -603,6 +609,7 @@ class WhatsAppSessionManager {
     this.sessionRestoreTimeout = null;
     this.qrCodeSent = false;
     this.currentQRCode = null; // Store QR code for on-demand sending
+    this.qrRequestedOnDemand = false; // Track if QR was requested via /whatsapp_auth command
   }
 
   async getActiveSession() {
@@ -847,8 +854,8 @@ class WhatsAppSessionManager {
         await this.sessionManager.clearLocalSession();
       }
       
-      // Only send Discord alert if QR was not requested on-demand
-      if (!this.whatsappService || !this.whatsappService.qrRequestedOnDemand) {
+      // Only send Discord alert if QR was not requested on-demand (check both local and main service flags)
+      if (!this.qrRequestedOnDemand && (!this.whatsappService || !this.whatsappService.qrRequestedOnDemand)) {
         await this.sendDiscordAlert('❌ **WhatsApp Authentication Failed**', `Authentication failed: ${msg} (attempt ${this.consecutiveAuthFailures}/${this.maxAuthFailures})`);
       } else {
         Logger.info('Skipping authentication failed Discord alert - QR was requested on-demand');
