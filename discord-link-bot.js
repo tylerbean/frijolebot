@@ -114,7 +114,7 @@ async function executeReadyLogic() {
                 const ch = client.channels.cache.get(id);
                 return ch ? `- #${ch.name} (${id})` : `- (unavailable) ${id}`;
             });
-            await adminChannel.send(`🧭 **Monitoring channels:**\n${lines.join('\n')}`);
+            await adminChannel.send(`🧭 **Link monitoring active in the following channels:**\n${lines.join('\n')}`);
             if (previousUncleanShutdown) {
               const info = previousRunInfo?.startedAt ? ` (previous start: ${previousRunInfo.startedAt})` : '';
               await adminChannel.send(`🟠 **Previous run did not shut down cleanly**${info}. Recovery checks performed.`);
