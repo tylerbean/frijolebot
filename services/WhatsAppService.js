@@ -193,7 +193,7 @@ class WhatsAppService {
         Logger.info('QR code length:', qr.length);
         Logger.info('QR code first 50 chars:', qr.substring(0, 50));
         Logger.info('⏳ Waiting for QR code scan - do not disconnect!');
-        await this.sessionManager.handleQRCode(qr);
+        await this.sessionManager.handleQRCode(qr, this.qrRequestedOnDemand);
       }
       
       if (connection === 'connecting') {
@@ -559,6 +559,9 @@ class WhatsAppService {
       // Reinitialize the client to generate a fresh QR code
       await this.initializeClient();
       
+      // The flag should still be true after reinitialization
+      Logger.debug('After reinitialization, qrRequestedOnDemand flag:', this.qrRequestedOnDemand);
+      
       return {
         success: true,
         message: 'Fresh QR code generation initiated. Check the admin channel.'
@@ -659,7 +662,7 @@ class WhatsAppSessionManager {
     }
   }
 
-  async handleQRCode(qr) {
+  async handleQRCode(qr, qrRequestedOnDemand = false) {
     try {
       Logger.info('QR code generated - scan with your phone to authenticate');
       Logger.debug('QR code data type:', typeof qr);
@@ -671,11 +674,14 @@ class WhatsAppSessionManager {
       this.currentQRCode = qr;
       
       // If QR was requested on-demand, send it immediately
-      Logger.debug('Checking qrRequestedOnDemand flag:', this.qrRequestedOnDemand);
-      if (this.qrRequestedOnDemand) {
+      Logger.debug('Checking qrRequestedOnDemand flag:', qrRequestedOnDemand);
+      if (qrRequestedOnDemand) {
         Logger.info('QR code requested on-demand - sending immediately to Discord');
-        await this.sessionManager.sendQRCodeToDiscord(qr);
-        this.qrRequestedOnDemand = false; // Reset flag
+        await this.sendQRCodeToDiscord(qr);
+        // Reset flag in main service
+        if (this.whatsappService) {
+          this.whatsappService.qrRequestedOnDemand = false;
+        }
         return;
       }
       
