@@ -540,6 +540,7 @@ class WhatsAppService {
       
       // Set flag to indicate QR was requested on-demand
       this.qrRequestedOnDemand = true;
+      Logger.debug('Set qrRequestedOnDemand flag to true');
       
       // Always generate a fresh QR code to ensure it's not expired
       // Clear any existing session to force QR generation
@@ -670,6 +671,7 @@ class WhatsAppSessionManager {
       this.currentQRCode = qr;
       
       // If QR was requested on-demand, send it immediately
+      Logger.debug('Checking qrRequestedOnDemand flag:', this.qrRequestedOnDemand);
       if (this.qrRequestedOnDemand) {
         Logger.info('QR code requested on-demand - sending immediately to Discord');
         await this.sessionManager.sendQRCodeToDiscord(qr);
