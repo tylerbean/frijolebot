@@ -710,18 +710,13 @@ class WhatsAppSessionManager {
         return;
       }
       
-      // Don't automatically send QR code - just notify admin (but not if QR was already sent on-demand)
-      if (!this.hasExistingSession && !this.qrCodeSent && !qrRequestedOnDemand && this.discordClient && this.config.discord.adminChannelId) {
-        await this.whatsappService.sendAdminNotification(
-          'QR code generated. Use `/whatsapp_auth` command to request it for authentication.',
-          'info'
-        );
-      } else if (this.qrCodeSent) {
+      // Don't send any QR-related notifications automatically - only when requested via /whatsapp_auth
+      if (this.qrCodeSent) {
         Logger.info('QR code already sent to Discord, skipping duplicate');
       } else if (qrRequestedOnDemand) {
         Logger.info('QR code was sent on-demand, skipping status notification');
       } else {
-        Logger.warning('Discord client or admin channel not configured, QR code not sent to Discord');
+        Logger.info('QR code stored for on-demand sending - no automatic notifications sent');
       }
       
     } catch (error) {
@@ -840,7 +835,12 @@ class WhatsAppSessionManager {
         await this.sessionManager.clearLocalSession();
       }
       
-      await this.sendDiscordAlert('❌ **WhatsApp Authentication Failed**', `Authentication failed: ${msg} (attempt ${this.consecutiveAuthFailures}/${this.maxAuthFailures})`);
+      // Only send Discord alert if QR was not requested on-demand
+      if (!this.whatsappService || !this.whatsappService.qrRequestedOnDemand) {
+        await this.sendDiscordAlert('❌ **WhatsApp Authentication Failed**', `Authentication failed: ${msg} (attempt ${this.consecutiveAuthFailures}/${this.maxAuthFailures})`);
+      } else {
+        Logger.info('Skipping authentication failed Discord alert - QR was requested on-demand');
+      }
     } catch (error) {
       Logger.error('Failed to handle auth failure:', error);
     }
