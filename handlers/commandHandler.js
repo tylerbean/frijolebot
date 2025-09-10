@@ -3,8 +3,8 @@ const Logger = require('../utils/logger');
 const RateLimiter = require('../utils/rateLimiter');
 
 class CommandHandler {
-    constructor(baserowService, reactionHandler, config, discordClient) {
-        this.baserowService = baserowService;
+    constructor(postgresService, reactionHandler, config, discordClient) {
+        this.postgresService = postgresService;
         this.reactionHandler = reactionHandler;
         this.config = config;
         this.discordClient = discordClient;
@@ -75,7 +75,7 @@ class CommandHandler {
             // Handle DM usage - show unread links from servers user is member of
             if (!guildId) {
                 Logger.info('Command used in DM - fetching unread links from accessible servers');
-                const unreadLinks = await this.baserowService.getUnreadLinksForUserAllGuilds(username, interaction.user.id, this.discordClient);
+                const unreadLinks = await this.postgresService.getUnreadLinksForUserAllGuilds(username, interaction.user.id, this.discordClient);
                 
                 if (unreadLinks.length === 0) {
                     await interaction.editReply({
@@ -124,7 +124,7 @@ class CommandHandler {
                     for (let i = 0; i < Math.min(linksToShow.length, 10); i++) {
                         await dmMessage.react(reactions[i]);
                         // Create database mapping for reaction emoji to original message ID
-                        await this.baserowService.createDMMapping(
+                        await this.postgresService.createDMMapping(
                             dmMessage.id, 
                             reactions[i], 
                             linksToShow[i].message_id, 
@@ -140,7 +140,7 @@ class CommandHandler {
                             const reactionIndex = i - 10;
                             await dmMessage.react(additionalReactions[reactionIndex]);
                             // Create database mapping for additional reactions
-                            await this.baserowService.createDMMapping(
+                            await this.postgresService.createDMMapping(
                                 dmMessage.id, 
                                 additionalReactions[reactionIndex], 
                                 linksToShow[i].message_id, 
@@ -153,7 +153,7 @@ class CommandHandler {
                     // Add checkmark reaction for "mark all as read" functionality
                     await dmMessage.react('✅');
                     // Create bulk database mapping for checkmark
-                    await this.baserowService.createBulkDMMapping(
+                    await this.postgresService.createBulkDMMapping(
                         dmMessage.id, 
                         linksToShow.map(link => link.message_id), 
                         'all_guilds', // Special identifier for all guilds
@@ -175,7 +175,7 @@ class CommandHandler {
                 return;
             }
             
-            const unreadLinks = await this.baserowService.getUnreadLinksForUser(username, guildId, interaction.user.id, this.discordClient);
+            const unreadLinks = await this.postgresService.getUnreadLinksForUser(username, guildId, interaction.user.id, this.discordClient);
             
             if (unreadLinks.length === 0) {
                 await interaction.editReply({
@@ -223,7 +223,7 @@ class CommandHandler {
                 for (let i = 0; i < Math.min(linksToShow.length, 10); i++) {
                     await dmMessage.react(reactions[i]);
                     // Create database mapping for reaction emoji to original message ID
-                    await this.baserowService.createDMMapping(
+                    await this.postgresService.createDMMapping(
                         dmMessage.id, 
                         reactions[i], 
                         linksToShow[i].message_id, 
@@ -239,7 +239,7 @@ class CommandHandler {
                         const reactionIndex = i - 10;
                         await dmMessage.react(additionalReactions[reactionIndex]);
                         // Create database mapping for additional reactions
-                        await this.baserowService.createDMMapping(
+                        await this.postgresService.createDMMapping(
                             dmMessage.id, 
                             additionalReactions[reactionIndex], 
                             linksToShow[i].message_id, 
@@ -252,7 +252,7 @@ class CommandHandler {
                 // Add checkmark reaction for "mark all as read" functionality
                 await dmMessage.react('✅');
                 // Create bulk database mapping for checkmark
-                await this.baserowService.createBulkDMMapping(
+                await this.postgresService.createBulkDMMapping(
                     dmMessage.id, 
                     linksToShow.map(link => link.message_id), 
                     guildId, 

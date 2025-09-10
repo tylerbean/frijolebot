@@ -51,7 +51,11 @@ const commands = [
     new SlashCommandBuilder()
         .setName('unread')
         .setDescription('Get a list of unread links shared by others')
-        .setDMPermission(true)
+        .setDMPermission(true),
+    new SlashCommandBuilder()
+        .setName('whatsapp_auth')
+        .setDescription('Request WhatsApp QR code for authentication')
+        .setDMPermission(false)
 ];
 
 // Register slash commands
@@ -145,6 +149,45 @@ client.on('interactionCreate', async interaction => {
             return;
         }
         await commandHandler.handleUnreadCommand(interaction);
+    } else if (interaction.commandName === 'whatsapp_auth') {
+        // Check if user has admin permissions (only in admin channel)
+        if (interaction.channelId !== config.discord.adminChannelId) {
+            await interaction.reply({
+                content: '❌ This command can only be used in the admin channel.',
+                flags: MessageFlags.Ephemeral
+            });
+            return;
+        }
+
+        if (!whatsappService) {
+            await interaction.reply({
+                content: '❌ WhatsApp service is not enabled or not initialized.',
+                flags: MessageFlags.Ephemeral
+            });
+            return;
+        }
+
+        await interaction.deferReply({ ephemeral: true });
+
+        try {
+            // Request QR code from WhatsApp service
+            const qrResult = await whatsappService.requestQRCode();
+            
+            if (qrResult.success) {
+                await interaction.editReply({
+                    content: '✅ WhatsApp QR code has been generated and sent to this channel. Please scan it with your phone within 30 seconds.'
+                });
+            } else {
+                await interaction.editReply({
+                    content: `❌ Failed to generate QR code: ${qrResult.error}`
+                });
+            }
+        } catch (error) {
+            Logger.error('Error handling WhatsApp auth command:', error);
+            await interaction.editReply({
+                content: '❌ An error occurred while generating the QR code. Please check the logs.'
+            });
+        }
     }
 });
 

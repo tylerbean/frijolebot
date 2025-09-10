@@ -22,6 +22,7 @@ class WhatsAppService {
     this.maxAuthFailures = 3; // Force clear session after 3 consecutive failures
     this.totalRestartAttempts = 0; // Track total restart attempts
     this.maxRestartAttempts = 10; // Maximum total restart attempts before giving up
+    this.hourlyReminderInterval = null; // For hourly disconnect notifications
     
     Logger.info('WhatsAppService initialized');
   }
@@ -52,6 +53,9 @@ class WhatsAppService {
       
       // Initialize WhatsApp client
       await this.initializeClient();
+      
+      // Check if we need to notify about missing session
+      await this.checkAndNotifySessionStatus();
       
       this.isInitialized = true;
       Logger.success('WhatsApp service initialized successfully');
@@ -365,6 +369,12 @@ class WhatsAppService {
 
   async destroy() {
     try {
+      // Clear hourly reminder interval
+      if (this.hourlyReminderInterval) {
+        clearInterval(this.hourlyReminderInterval);
+        this.hourlyReminderInterval = null;
+      }
+      
       if (this.sock) {
         await this.sock.logout();
       }
@@ -393,6 +403,147 @@ class WhatsAppService {
       isInitialized: this.isInitialized,
       clientState: this.sock ? 'initialized' : 'not_initialized'
     };
+  }
+
+  /**
+   * Check session status and notify admin if authentication is needed
+   */
+  async checkAndNotifySessionStatus() {
+    try {
+      if (this.isConnected) {
+        // Already connected, send success notification and clear reminders
+        await this.sendAdminNotification(
+          'Connected and ready for message forwarding.',
+          'info'
+        );
+        
+        // Clear hourly reminder since we're connected
+        if (this.hourlyReminderInterval) {
+          clearInterval(this.hourlyReminderInterval);
+          this.hourlyReminderInterval = null;
+        }
+        return;
+      }
+
+      // Check if we have a valid session
+      const hasValidSession = await this.sessionManager.getActiveSession();
+      
+      if (!hasValidSession) {
+        // No valid session found - notify admin
+        await this.sendAdminNotification(
+          'Not authenticated. Use `/whatsapp_auth` command to generate a QR code for authentication.',
+          'warning'
+        );
+        
+        // Set up hourly reminder if still not connected
+        this.setupHourlyReminder();
+      }
+    } catch (error) {
+      Logger.error('Error checking session status:', error);
+      await this.sendAdminNotification(
+        'Error checking authentication status. Please check logs.',
+        'error'
+      );
+    }
+  }
+
+  /**
+   * Set up hourly reminder for disconnected WhatsApp
+   */
+  setupHourlyReminder() {
+    // Clear any existing reminder
+    if (this.hourlyReminderInterval) {
+      clearInterval(this.hourlyReminderInterval);
+    }
+
+    // Set up new reminder every hour
+    this.hourlyReminderInterval = setInterval(async () => {
+      if (!this.isConnected) {
+        await this.sendAdminNotification(
+          'Still not authenticated. Use `/whatsapp_auth` command to generate a QR code.',
+          'warning'
+        );
+      } else {
+        // Connected, clear the reminder
+        clearInterval(this.hourlyReminderInterval);
+        this.hourlyReminderInterval = null;
+      }
+    }, 60 * 60 * 1000); // 1 hour in milliseconds
+  }
+
+  /**
+   * Send notification to admin channel about WhatsApp status
+   * @param {string} message - Message to send
+   * @param {string} type - Type of notification (info, warning, error)
+   */
+  async sendAdminNotification(message, type = 'info') {
+    try {
+      if (!this.discordClient || !this.discordClient.isReady()) {
+        Logger.warning('Discord client not ready, cannot send admin notification');
+        return;
+      }
+
+      const adminChannelId = this.config.discord.adminChannelId;
+      if (!adminChannelId) {
+        Logger.warning('No admin channel configured, cannot send notification');
+        return;
+      }
+
+      const adminChannel = this.discordClient.channels.cache.get(adminChannelId);
+      if (!adminChannel) {
+        Logger.warning(`Admin channel ${adminChannelId} not found`);
+        return;
+      }
+
+      const emoji = type === 'warning' ? '⚠️' : type === 'error' ? '❌' : 'ℹ️';
+      const fullMessage = `${emoji} **WhatsApp Status**: ${message}`;
+      
+      await adminChannel.send(fullMessage);
+      Logger.info(`Admin notification sent: ${message}`);
+    } catch (error) {
+      Logger.error('Failed to send admin notification:', error);
+    }
+  }
+
+  /**
+   * Request a new QR code for authentication (on-demand)
+   * @returns {Promise<Object>} Result object with success status
+   */
+  async requestQRCode() {
+    try {
+      if (this.isConnected) {
+        return {
+          success: false,
+          error: 'WhatsApp is already connected. No QR code needed.'
+        };
+      }
+
+      if (!this.isInitialized) {
+        return {
+          success: false,
+          error: 'WhatsApp service is not initialized. Please restart the bot.'
+        };
+      }
+
+      Logger.info('Manual QR code requested by admin');
+      
+      // Clear any existing session to force QR generation
+      await this.sessionManager.clearLocalSession();
+      
+      // Reinitialize the client to generate a new QR code
+      await this.initializeClient();
+      
+      return {
+        success: true,
+        message: 'QR code generation initiated. Check the admin channel.'
+      };
+    } catch (error) {
+      Logger.error('Error generating QR code on demand:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
   }
 }
 
