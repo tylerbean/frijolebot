@@ -15,15 +15,15 @@ export default function WhatsAppProxyPanel() {
 
   useEffect(() => {
     (async () => {
-      const [cfg, ch] = await Promise.all([
+      const [cfg, ch, chats] = await Promise.all([
         fetch('/api/config', { cache: 'no-store' }).then(r => r.json()),
         fetch('/api/discord/channels', { cache: 'no-store' }).then(r => r.json()),
+        fetch('/api/whatsapp/chats', { cache: 'no-store' }).then(r => r.json()),
       ]);
       setEnabled(String(cfg.WHATSAPP_ENABLED) === 'true');
       setStore(String(cfg.WHATSAPP_STORE_MESSAGES) === 'true');
       setChannels(ch.channels ?? []);
-      // Placeholder: actual chat mappings would come from a dedicated API
-      setRows([]);
+      setRows((chats.chats ?? []).map((c: any) => ({ chatId: c.chat_id, chatName: c.chat_id, channelId: c.discord_channel_id ?? '' })));
     })();
   }, []);
 
@@ -78,6 +78,9 @@ export default function WhatsAppProxyPanel() {
       };
       const res = await fetch('/api/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       if (!res.ok) throw new Error('Failed to save');
+      const chatsPayload = { chats: rows.filter(r => r.chatId).map(r => ({ chat_id: r.chatId, discord_channel_id: r.channelId || null, is_active: true })) };
+      const res2 = await fetch('/api/whatsapp/chats', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(chatsPayload) });
+      if (!res2.ok) throw new Error('Failed to save chats');
     } finally {
       setPending(false);
     }
