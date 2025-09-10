@@ -4,14 +4,14 @@
 [![Tests](https://github.com/tylerbean/frijolebot/actions/workflows/test.yml/badge.svg)](https://github.com/tylerbean/frijolebot/actions/workflows/test.yml)
 [![Security Scan](https://github.com/tylerbean/frijolebot/actions/workflows/security.yml/badge.svg)](https://github.com/tylerbean/frijolebot/actions/workflows/security.yml)
 
-A Discord bot that monitors specified channels for messages containing URLs and stores them in a Baserow database for link management and read status tracking. Now includes WhatsApp integration for forwarding messages from WhatsApp chats to Discord channels.
+A Discord bot that monitors specified channels for messages containing URLs and stores them in a PostgreSQL database for link management and read status tracking. Now includes WhatsApp integration for forwarding messages from WhatsApp chats to Discord channels.
 
 ## Features
 
 ### Core Discord Features
 - **Multi-channel monitoring**: Configure multiple channels to monitor within a single Discord server
 - **URL detection**: Automatically detects HTTP/HTTPS URLs in messages
-- **Database storage**: Stores detected links in Baserow database with metadata
+- **Database storage**: Stores detected links in PostgreSQL database with metadata
 - **DM link management**: Users can view and manage unread links via DM interactions
 - **Reaction-based interface**: Toggle read/unread status using Discord reactions
 - **Multi-server support**: Works across multiple Discord servers with proper access control
@@ -62,19 +62,18 @@ DISCORD_GUILD_ID=your_guild_id_here
 DISCORD_CHANNELS_TO_MONITOR=channel_id_1,channel_id_2,channel_id_3
 DISCORD_ADMIN_CHANNEL=your_admin_channel_id_here
 
-# Baserow API Configuration
-BASEROW_API_TOKEN=your_baserow_api_token_here
-BASEROW_API_URL=https://your-baserow-instance.com/api/database/table/123/
-BASEROW_LINKS_TABLE_ID=your_links_table_id
-BASEROW_DM_MAPPING_TABLE_ID=your_dm_mapping_table_id
+# PostgreSQL Database Configuration
+POSTGRES_HOST=your_postgres_host
+POSTGRES_PORT=5432
+POSTGRES_USER=your_postgres_user
+POSTGRES_PASSWORD=your_postgres_password
+POSTGRES_DATABASE=your_postgres_database
+POSTGRES_SSL=false
 
 # WhatsApp Integration (Optional)
 WHATSAPP_ENABLED=true
 WHATSAPP_SESSION_ENCRYPTION_KEY=your_32_character_encryption_key_here
 WHATSAPP_STORE_MESSAGES=true
-BASEROW_WHATSAPP_SESSIONS_TABLE_ID=your_sessions_table_id
-BASEROW_WHATSAPP_CHATS_TABLE_ID=your_chats_table_id
-BASEROW_WHATSAPP_MESSAGES_TABLE_ID=your_messages_table_id
 
 # Health Check Configuration
 HEALTH_CHECK_PORT=3000
@@ -96,15 +95,24 @@ NODE_ENV=production
 3. Select permissions: `Read Messages`, `Send Messages`, `Create Public Threads`, `Add Reactions`, `Manage Messages`
 4. Use generated URL to add bot to your server
 
-### 5. WhatsApp Integration Setup (Optional)
+### 5. Database Setup
+
+The bot automatically initializes the PostgreSQL database schema when it starts. The database includes the following tables:
+
+#### Discord Tables
+- **discord_links**: Stores Discord message links with read status and metadata
+- **discord_dm_mappings**: Stores DM reaction mappings with expiration times
+
+#### WhatsApp Tables  
+- **whatsapp_sessions**: Stores encrypted WhatsApp session data
+- **whatsapp_chats**: Stores active WhatsApp chat configurations
+- **whatsapp_messages**: Stores WhatsApp messages linked to Discord messages
+
+### 6. WhatsApp Integration Setup (Optional)
 
 If you want to enable WhatsApp integration:
 
-1. **Set up Baserow tables** for WhatsApp data:
-   - Create tables for sessions, chats, and messages
-   - Get the table IDs and add them to your `.env` file
-
-2. **Configure WhatsApp chats**:
+1. **Configure WhatsApp chats**:
    - Add entries to the `whatsapp_chats` table for chats you want to monitor
    - Use the correct WhatsApp chat ID format (see documentation below)
 
