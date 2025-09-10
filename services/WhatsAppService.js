@@ -27,6 +27,8 @@ class WhatsAppService {
     this.startupNotificationSent = false; // Track if startup notification was sent
     this.isShuttingDown = false; // Track if bot is shutting down
     this.qrSuppressAlertsUntil = 0; // Timestamp until which auth-failed alerts are suppressed
+    this.adminAlertCooldownMs = 60000; // Cooldown for duplicate admin alerts
+    this.lastAdminAlert = { key: null, at: 0 }; // Track last admin alert to de-duplicate
     this.lastIsNewLogin = null; // Cache of isNewLogin from connection updates
     
     Logger.info('WhatsAppService initialized');
@@ -249,10 +251,14 @@ class WhatsAppService {
             if (this.sock) {
               try {
                 Logger.info('Destroying WhatsApp socket to release file handles...');
-                await this.sock.logout();
+                if (typeof this.sock.end === 'function') {
+                  this.sock.end();
+                } else if (typeof this.sock.logout === 'function') {
+                  await this.sock.logout();
+                }
                 this.sock = null;
               } catch (logoutError) {
-                Logger.warning('Error during socket logout:', logoutError.message);
+                Logger.warning('Error during socket shutdown:', logoutError.message);
               }
             }
             
@@ -283,7 +289,9 @@ class WhatsAppService {
               willSendAlert: !!(this.discordClient && this.config.discord.adminChannelId && !this.qrRequestedOnDemand && !this.isShuttingDown && Date.now() > this.qrSuppressAlertsUntil)
             });
             
-            if (this.discordClient && this.config.discord.adminChannelId && !this.qrRequestedOnDemand && !this.isShuttingDown && Date.now() > this.qrSuppressAlertsUntil) {
+            const alertKey = 'auth_failed:logged_out';
+            const canAlert = (!this.qrRequestedOnDemand && !this.isShuttingDown && Date.now() > this.qrSuppressAlertsUntil && (typeof this.canSendAdminAlert !== 'function' || this.canSendAdminAlert(alertKey)));
+            if (this.discordClient && this.config.discord.adminChannelId && canAlert) {
               Logger.error('🚨 [MAIN SERVICE] SENDING Discord authentication failed message!');
               try {
                 const channel = this.discordClient.channels.cache.get(this.config.discord.adminChannelId);
@@ -546,6 +554,21 @@ class WhatsAppService {
       Logger.info(`Admin notification sent: ${message}`);
     } catch (error) {
       Logger.error('Failed to send admin notification:', error);
+    }
+  }
+
+  canSendAdminAlert(key) {
+    try {
+      const now = Date.now();
+      const last = this.lastAdminAlert || { key: null, at: 0 };
+      if (last.key === key && now - last.at < this.adminAlertCooldownMs) {
+        Logger.debug(`Suppressing duplicate admin alert for key: ${key}`);
+        return false;
+      }
+      this.lastAdminAlert = { key, at: now };
+      return true;
+    } catch (_) {
+      return true;
     }
   }
 
@@ -912,9 +935,10 @@ class WhatsAppSessionManager {
         willSendAlert: !this.qrRequestedOnDemand && (!this.whatsappService || !this.whatsappService.qrRequestedOnDemand)
       });
       
-      if (!this.qrRequestedOnDemand && (!this.whatsappService || !this.whatsappService.qrRequestedOnDemand)) {
+      const alertKey = `auth_failed:${msg}`;
+      if (!this.qrRequestedOnDemand && (!this.whatsappService || !this.whatsappService.qrRequestedOnDemand) && (!this.whatsappService || (typeof this.whatsappService.canSendAdminAlert !== 'function') || this.whatsappService.canSendAdminAlert(alertKey))) {
         Logger.error('🚨 [SESSION MANAGER] SENDING Discord authentication failed message!');
-        await this.sendDiscordAlert('❌ **WhatsApp Authentication Failed**', `Authentication failed: ${msg} (attempt ${this.consecutiveAuthFailures}/${this.maxAuthFailures})`);
+        await this.sendDiscordAlert('❌ **WhatsApp Authentication Failed**', `Authentication failed: ${msg} (attempt ${this.consecutiveAuthFailures}/${this.maxAuthFailures})`, alertKey);
         Logger.error('🚨 [SESSION MANAGER] Discord message SENT!');
       } else {
         Logger.info('✅ [SESSION MANAGER] Skipping authentication failed Discord alert - QR was requested on-demand');
@@ -928,31 +952,29 @@ class WhatsAppSessionManager {
     try {
       const sessionPath = path.join(process.cwd(), 'auth_info_baileys');
       if (fs.existsSync(sessionPath)) {
-        // Try to clear the session directory with retries for EBUSY errors
-        let retries = 5; // Increased retries
-        while (retries > 0) {
+        // Remove only contents, not the directory itself
+        const entries = fs.readdirSync(sessionPath);
+        for (const entry of entries) {
+          const fullPath = path.join(sessionPath, entry);
           try {
-            fs.rmSync(sessionPath, { recursive: true, force: true });
-            Logger.info('Cleared local WhatsApp session files');
-            return; // Success, exit the retry loop
-          } catch (rmError) {
-            if (rmError.code === 'EBUSY' && retries > 1) {
-              Logger.warning(`Session directory busy, retrying in 3 seconds... (${retries - 1} retries left)`);
-              await new Promise(resolve => setTimeout(resolve, 3000));
-              retries--;
+            const stat = fs.lstatSync(fullPath);
+            if (stat.isDirectory()) {
+              fs.rmSync(fullPath, { recursive: true, force: true });
             } else {
-              Logger.error('Session directory still busy after retries - will be cleared on next restart');
-              throw rmError; // Re-throw if not EBUSY or no retries left
+              fs.unlinkSync(fullPath);
+            }
+          } catch (entryErr) {
+            if (entryErr.code === 'EBUSY') {
+              Logger.warning(`Could not remove busy entry: ${entry}`);
+            } else {
+              Logger.warning(`Could not remove entry ${entry}: ${entryErr.message}`);
             }
           }
         }
+        Logger.info('Cleared local WhatsApp session contents (directory preserved)');
       }
     } catch (error) {
-      if (error.code === 'EBUSY') {
-        Logger.warning('Session directory still busy after retries - will be cleared on next restart');
-      } else {
-        Logger.error('Failed to clear local session:', error);
-      }
+      Logger.error('Failed to clear local session contents:', error);
     }
   }
 
@@ -965,56 +987,27 @@ class WhatsAppSessionManager {
         global.gc();
       }
       
-      // First, try to clear the local session with more aggressive retries
+      // First, clear the local session contents (preserve directory)
       const sessionPath = path.join(process.cwd(), 'auth_info_baileys');
       if (fs.existsSync(sessionPath)) {
-        let retries = 15; // More retries for force clear
-        while (retries > 0) {
+        const files = fs.readdirSync(sessionPath);
+        for (const file of files) {
           try {
-            // Try to remove individual files first if directory removal fails
-            try {
-              fs.rmSync(sessionPath, { recursive: true, force: true });
-              Logger.info('Force cleared local WhatsApp session files');
-              break;
-            } catch (dirError) {
-              if (dirError.code === 'EBUSY') {
-                // Try to remove individual files
-                const files = fs.readdirSync(sessionPath);
-                for (const file of files) {
-                  try {
-                    fs.unlinkSync(path.join(sessionPath, file));
-                  } catch (fileError) {
-                    Logger.warning(`Could not remove file ${file}:`, fileError.message);
-                  }
-                }
-                // Try to remove directory again
-                fs.rmSync(sessionPath, { recursive: true, force: true });
-                Logger.info('Force cleared local WhatsApp session files (individual file removal)');
-                break;
-              } else {
-                throw dirError;
-              }
-            }
-          } catch (rmError) {
-            if (rmError.code === 'EBUSY' && retries > 1) {
-              Logger.warning(`Force clear: Session directory busy, retrying in 5 seconds... (${retries - 1} retries left)`);
-              await new Promise(resolve => setTimeout(resolve, 5000));
-              retries--;
+            const p = path.join(sessionPath, file);
+            const st = fs.lstatSync(p);
+            if (st.isDirectory()) {
+              fs.rmSync(p, { recursive: true, force: true });
             } else {
-              Logger.error('Force clear failed:', rmError);
-              break;
+              fs.unlinkSync(p);
             }
+          } catch (fileError) {
+            Logger.warning(`Force clear: could not remove ${file}: ${fileError.message}`);
           }
         }
+        Logger.info('Force cleared local WhatsApp session contents (directory preserved)');
       }
       
-      // Also clear any Baserow sessions to ensure clean state
-      try {
-        await this.sessionManager.updateSessionStatus('expired');
-        Logger.info('Marked all Baserow sessions as expired');
-      } catch (error) {
-        Logger.warning('Failed to clear Baserow sessions:', error.message);
-      }
+      // No DB session clearing required; sessions are managed locally only
       
       // Reset session manager state
       this.sessionManager.currentSessionId = null;
@@ -1029,7 +1022,7 @@ class WhatsAppSessionManager {
   async handleDisconnection(reason) {
     try {
       Logger.warning('Client disconnected:', reason);
-      await this.sendDiscordAlert('⚠️ **WhatsApp Disconnected**', `Client disconnected: ${reason}`);
+      await this.sendDiscordAlert('⚠️ **WhatsApp Disconnected**', `Client disconnected: ${reason}`, 'disconnected');
     } catch (error) {
       Logger.error('Failed to handle disconnection:', error);
     }
@@ -1038,16 +1031,19 @@ class WhatsAppSessionManager {
   async handleConnectionLoss() {
     try {
       Logger.warning('Connection lost, attempting to reconnect...');
-      await this.sendDiscordAlert('🔄 **WhatsApp Connection Lost**', 'Connection lost, attempting to reconnect...');
+      await this.sendDiscordAlert('🔄 **WhatsApp Connection Lost**', 'Connection lost, attempting to reconnect...', 'connection_lost');
       // TODO: Implement reconnection logic
     } catch (error) {
       Logger.error('Failed to handle connection loss:', error);
     }
   }
 
-  async sendDiscordAlert(title, message) {
+  async sendDiscordAlert(title, message, key) {
     try {
       if (this.discordClient && this.config.discord.adminChannelId) {
+        if (key && typeof this.canSendAdminAlert === 'function' && !this.canSendAdminAlert(key)) {
+          return;
+        }
         const adminChannel = this.discordClient.channels.cache.get(this.config.discord.adminChannelId);
         if (adminChannel) {
           await adminChannel.send({

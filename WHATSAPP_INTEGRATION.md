@@ -9,7 +9,7 @@ The WhatsApp integration allows the bot to:
 - Monitor specific WhatsApp chats (groups and individual conversations)
 - Forward messages from WhatsApp to designated Discord channels
 - Handle both text and media messages (images, documents, etc.)
-- Store WhatsApp session data and message history in Baserow
+- Store WhatsApp message history in PostgreSQL (sessions stored locally only)
 - Send QR codes for authentication to Discord admin channels
 
 ## Features
@@ -22,7 +22,7 @@ The WhatsApp integration allows the bot to:
 
 ### Session Management
 - **Local Session Storage**: Uses WhatsApp Web's local authentication files
-- **Baserow Backup**: Stores session data in Baserow for persistence across deployments
+- **Local Only**: Session data is not stored in the database; Baileys multi-file auth is persisted on disk
 - **Session Restoration**: Automatically restores sessions when available
 - **QR Code Generation**: Sends QR codes to Discord admin channel when authentication is needed
 - **Session Validation**: Validates sessions and handles expired/invalid sessions

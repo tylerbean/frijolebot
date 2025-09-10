@@ -226,7 +226,7 @@ class ReactionHandler {
         if (hasAdminPerms || isOriginalPoster) {
             try {
                 // Delete from PostgreSQL first
-                const baserowDeleted = await this.postgresService.deleteLink(reaction.message.id, reaction.message.guild.id);
+                const dbDeleted = await this.postgresService.deleteLink(reaction.message.id, reaction.message.guild.id);
                 
                 // Delete the Discord message
                 await reaction.message.delete();
@@ -234,7 +234,7 @@ class ReactionHandler {
                 const deletionType = hasAdminPerms ? 'admin' : 'self';
                 Logger.success(`Deleted Discord message ${reaction.message.id} by ${deletionType} ${user.username}`);
                 
-                if (baserowDeleted) {
+                if (dbDeleted) {
                     Logger.success('Successfully deleted message and database entry');
                 } else {
                     Logger.warning('Message deleted but no database entry found');
