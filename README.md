@@ -25,7 +25,7 @@ A Discord bot that monitors specified channels for messages containing URLs and 
 - **Message forwarding**: Forward messages from WhatsApp chats to Discord channels
 - **Media support**: Handle text messages, images, documents, and other media files
 - **Group chat support**: Monitor both individual and group WhatsApp conversations
-- **Session management**: Persistent session storage with Baserow backup
+- **Session management**: Persistent session storage via local WhatsApp auth files
 - **QR code authentication**: Automatic QR code generation and Discord notifications
 - **Multi-tenant ready**: Support for multiple Discord servers with proper isolation
 - **Lightweight**: No Chromium dependencies - uses pure Node.js WebSocket connections
@@ -104,7 +104,6 @@ The bot automatically initializes the PostgreSQL database schema when it starts.
 - **discord_dm_mappings**: Stores DM reaction mappings with expiration times
 
 #### WhatsApp Tables  
-- **whatsapp_sessions**: Stores encrypted WhatsApp session data
 - **whatsapp_chats**: Stores active WhatsApp chat configurations
 - **whatsapp_messages**: Stores WhatsApp messages linked to Discord messages
 
@@ -249,7 +248,7 @@ To monitor additional channels:
 
 ## Data Storage
 
-The bot stores the following data in Baserow for each detected URL:
+The bot stores the following data in PostgreSQL for each detected URL:
 
 ```json
 {
@@ -292,11 +291,10 @@ The bot includes built-in health check endpoints for monitoring and Kubernetes d
       "guilds": 2,
       "user": "FrijoleBot#1234"
     },
-    "baserow": {
+    "postgres": {
       "connected": true,
       "status": "connected",
-      "response_time": 150,
-      "api_url": "https://your-baserow.com/api/database/table/123/"
+      "response_time": 15
     },
     "memory": {
       "status": "ok",
@@ -405,9 +403,8 @@ The bot includes comprehensive WhatsApp integration for forwarding messages from
    WHATSAPP_SESSION_ENCRYPTION_KEY=your_32_character_key_here
    ```
 
-2. **Configure Baserow Tables**:
-   - Create tables for WhatsApp sessions, chats, and messages
-   - Add table IDs to environment variables
+2. **Configure WhatsApp Tables (PostgreSQL)**:
+   - Create entries in the `whatsapp_chats` table for chats you want to monitor
 
 3. **Add Chat Configuration**:
    - Add entries to the `whatsapp_chats` table for monitored chats
@@ -476,9 +473,9 @@ For detailed WhatsApp integration documentation, see [WHATSAPP_INTEGRATION.md](W
 
 - **Bot not responding**: Check bot token and permissions
 - **Channel not monitored**: Verify channel ID in environment variables
-- **Database errors**: Check Baserow API token and URL configuration
+- **Database errors**: Check PostgreSQL connectivity
 - **Missing messages**: Ensure bot has MESSAGE_CONTENT intent enabled
-- **Health check failures**: Check Discord API connectivity and Baserow API access
+- **Health check failures**: Check Discord API connectivity and PostgreSQL access
 - **Kubernetes probe failures**: Verify health check port is accessible and endpoints respond correctly
 - **WhatsApp QR code not appearing**: Check `DISCORD_ADMIN_CHANNEL` configuration and bot permissions
-- **WhatsApp messages not forwarding**: Verify chat configuration in Baserow `whatsapp_chats` table
+- **WhatsApp messages not forwarding**: Verify chat configuration in PostgreSQL `whatsapp_chats` table

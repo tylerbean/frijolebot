@@ -65,20 +65,7 @@ class PostgreSQLService {
                 )
             `);
 
-            // Create WhatsApp Sessions table
-            await this.pool.query(`
-                CREATE TABLE IF NOT EXISTS whatsapp_sessions (
-                    id SERIAL PRIMARY KEY,
-                    session_id VARCHAR(100) UNIQUE NOT NULL,
-                    session_data TEXT,
-                    status VARCHAR(20) DEFAULT 'active',
-                    last_used TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-                    device_info TEXT,
-                    notes TEXT,
-                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-                )
-            `);
+            // Removed WhatsApp Sessions table: sessions are stored locally only
 
             // Create WhatsApp Chats table
             await this.pool.query(`
@@ -133,15 +120,7 @@ class PostgreSQLService {
                 ON discord_dm_mappings(expires_at)
             `);
 
-            await this.pool.query(`
-                CREATE INDEX IF NOT EXISTS idx_whatsapp_sessions_session_id 
-                ON whatsapp_sessions(session_id)
-            `);
-            
-            await this.pool.query(`
-                CREATE INDEX IF NOT EXISTS idx_whatsapp_sessions_status 
-                ON whatsapp_sessions(status)
-            `);
+            // Removed whatsapp_sessions indexes
 
             await this.pool.query(`
                 CREATE INDEX IF NOT EXISTS idx_whatsapp_chats_chat_id 
@@ -839,78 +818,7 @@ class PostgreSQLService {
      * @param {string} deviceInfo - Device fingerprint info
      * @returns {Promise<Object|null>} Created session record or null if failed
      */
-    async saveWhatsAppSession(sessionId, sessionData, status = 'active', deviceInfo = null) {
-        try {
-            // First, check if a session with this ID already exists
-            const existingResult = await this.pool.query(`
-                SELECT * FROM whatsapp_sessions 
-                WHERE session_id = $1
-            `, [sessionId]);
-
-            const sessionRecord = {
-                session_id: sessionId,
-                session_data: sessionData,
-                status: status,
-                last_used: new Date().toISOString(),
-                device_info: deviceInfo || '',
-                notes: ''
-            };
-
-            Logger.info('Attempting to save WhatsApp session to PostgreSQL');
-            Logger.debug('Session Record:', JSON.stringify(sessionRecord, null, 2));
-
-            let result;
-            if (existingResult.rows.length > 0) {
-                // Update existing session
-                const existingSession = existingResult.rows[0];
-                sessionRecord.created_at = existingSession.created_at; // Preserve original creation date
-                
-                Logger.info('Updating existing WhatsApp session in PostgreSQL');
-                
-                result = await this.pool.query(`
-                    UPDATE whatsapp_sessions 
-                    SET session_data = $1, status = $2, last_used = $3, device_info = $4, notes = $5, updated_at = CURRENT_TIMESTAMP
-                    WHERE session_id = $6
-                    RETURNING *
-                `, [
-                    sessionRecord.session_data,
-                    sessionRecord.status,
-                    sessionRecord.last_used,
-                    sessionRecord.device_info,
-                    sessionRecord.notes,
-                    sessionId
-                ]);
-                
-                Logger.success('WhatsApp session updated successfully');
-            } else {
-                // Create new session
-                sessionRecord.created_at = new Date().toISOString();
-                
-                Logger.info('Creating new WhatsApp session in PostgreSQL');
-                
-                result = await this.pool.query(`
-                    INSERT INTO whatsapp_sessions (session_id, session_data, status, last_used, device_info, notes, created_at)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7)
-                    RETURNING *
-                `, [
-                    sessionRecord.session_id,
-                    sessionRecord.session_data,
-                    sessionRecord.status,
-                    sessionRecord.last_used,
-                    sessionRecord.device_info,
-                    sessionRecord.notes,
-                    sessionRecord.created_at
-                ]);
-                
-                Logger.success('WhatsApp session created successfully');
-            }
-
-            return result.rows[0];
-        } catch (error) {
-            Logger.error('Error saving WhatsApp session to PostgreSQL:', error);
-            return null;
-        }
-    }
+    // Removed: WhatsApp session persistence (local files only)
 
     /**
      * Update WhatsApp session status
@@ -919,136 +827,17 @@ class PostgreSQLService {
      * @param {string} notes - Optional notes
      * @returns {Promise<boolean>} Success status
      */
-    async updateWhatsAppSessionStatus(sessionId, status, notes = '') {
-        try {
-            const updateData = {
-                status: status,
-                last_used: new Date().toISOString()
-            };
-
-            if (notes) {
-                updateData.notes = notes;
-            }
-
-            const result = await this.pool.query(`
-                UPDATE whatsapp_sessions 
-                SET status = $1, last_used = $2, notes = $3, updated_at = CURRENT_TIMESTAMP
-                WHERE session_id = $4
-                RETURNING *
-            `, [updateData.status, updateData.last_used, updateData.notes, sessionId]);
-
-            if (result.rows.length === 0) {
-                Logger.warning(`No WhatsApp session found with ID: ${sessionId}`);
-                return false;
-            }
-
-            Logger.success(`Updated WhatsApp session status to: ${status}`);
-            return true;
-        } catch (error) {
-            Logger.error('Error updating WhatsApp session status:', error);
-            return false;
-        }
-    }
+    // Removed: WhatsApp session status updates
 
     /**
      * Get active WhatsApp session
      * @returns {Promise<Object|null>} Active session or null
      */
-    async getActiveWhatsAppSession() {
-        try {
-            // Get all sessions (not just active ones) to properly evaluate them
-            const result = await this.pool.query(`
-                SELECT * FROM whatsapp_sessions 
-                ORDER BY last_used DESC, created_at DESC
-            `);
+    // Removed: WhatsApp session retrieval APIs
 
-            const sessions = result.rows || [];
-            if (sessions.length === 0) {
-                return null;
-            }
+    // Removed: WhatsApp session validation helpers
 
-            // Find the most recent valid session
-            for (const session of sessions) {
-                if (this.isSessionValid(session)) {
-                    Logger.debug(`Found valid session: ${session.session_id} (last used: ${session.last_used})`);
-                    return session;
-                }
-            }
-
-            // If no valid sessions found, clean up expired ones
-            await this.cleanupExpiredSessions(sessions);
-            return null;
-
-        } catch (error) {
-            Logger.error('Error getting active WhatsApp session:', error);
-            return null;
-        }
-    }
-
-    isSessionValid(session) {
-        try {
-            // Check if session has required fields
-            if (!session.session_id || !session.status) {
-                return false;
-            }
-
-            // Check if session is marked as active
-            if (session.status !== 'active' && session.status !== 'authenticated') {
-                return false;
-            }
-
-            // Check if session is not too old (24 hours max)
-            const lastUsed = new Date(session.last_used || session.created_at);
-            const now = new Date();
-            const hoursSinceLastUse = (now - lastUsed) / (1000 * 60 * 60);
-            
-            if (hoursSinceLastUse > 24) {
-                Logger.debug(`Session ${session.session_id} expired (${hoursSinceLastUse.toFixed(1)} hours old)`);
-                return false;
-            }
-
-            // Check if session data is valid (if it exists)
-            if (session.session_data) {
-                try {
-                    const sessionData = JSON.parse(session.session_data);
-                    // Add any additional validation for session data here
-                    if (sessionData.status === 'failed') {
-                        return false;
-                    }
-                } catch (e) {
-                    Logger.debug(`Session ${session.session_id} has invalid session_data`);
-                    return false;
-                }
-            }
-
-            return true;
-        } catch (error) {
-            Logger.error('Error validating session:', error);
-            return false;
-        }
-    }
-
-    async cleanupExpiredSessions(sessions) {
-        try {
-            const now = new Date();
-            const expiredSessions = sessions.filter(session => {
-                const lastUsed = new Date(session.last_used || session.created_at);
-                const hoursSinceLastUse = (now - lastUsed) / (1000 * 60 * 60);
-                return hoursSinceLastUse > 24 || session.status === 'failed';
-            });
-
-            for (const session of expiredSessions) {
-                await this.updateWhatsAppSessionStatus(session.session_id, 'expired', 'Auto-expired due to age or failure');
-                Logger.info(`Marked expired session as expired: ${session.session_id}`);
-            }
-
-            if (expiredSessions.length > 0) {
-                Logger.info(`Cleaned up ${expiredSessions.length} expired sessions`);
-            }
-        } catch (error) {
-            Logger.error('Error cleaning up expired sessions:', error);
-        }
-    }
+    // Removed: WhatsApp session cleanup
 
     /**
      * Close the database connection pool

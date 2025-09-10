@@ -50,8 +50,8 @@ class WhatsAppService {
       
       // PostgreSQL service is already set in constructor
 
-      // Initialize session manager
-      this.sessionManager = new WhatsAppSessionManager(this.postgresService, this.encryptionKey, this.discordClient, this.config, this);
+      // Initialize session manager (local-only; no DB session storage)
+      this.sessionManager = new WhatsAppSessionManager(this.encryptionKey, this.discordClient, this.config, this);
       
       // Initialize message handler
       this.messageHandler = new WhatsAppMessageHandler(this.postgresService, this.discordClient, this.config, this);
@@ -134,33 +134,9 @@ class WhatsAppService {
       const hasLocalSession = await this.sessionManager.hasLocalSession();
       Logger.info(`Local session check result: ${hasLocalSession}`);
       
-      // Check if we have a valid Baserow session
-      let baserowSession = null;
-      try {
-        baserowSession = await this.sessionManager.getActiveSession();
-        Logger.info(`Baserow session check result: ${baserowSession ? 'found' : 'not found'}`);
-      } catch (error) {
-        Logger.warning('Failed to check Baserow session (network issue), proceeding with local session only:', error.message);
-        baserowSession = null;
-      }
-      
-      if (hasLocalSession && baserowSession) {
-        Logger.info('Found existing local and Baserow WhatsApp session, attempting to restore...');
-        // Set the current session ID to the existing Baserow session
-        this.sessionManager.currentSessionId = baserowSession.session_id;
-      } else if (hasLocalSession && !baserowSession) {
-        Logger.warning('Found local session but no valid Baserow session - this may be a corrupted session');
-        Logger.info('However, this could also be a fresh session from QR scan - attempting to use it first');
-        // Don't immediately clear the session - try to use it first
-        // If it's truly corrupted, the authentication will fail and we'll clear it then
-      } else if (!hasLocalSession && baserowSession) {
-        Logger.warning('Found Baserow session but no local session - local files required for restoration');
-        Logger.info('Clearing orphaned Baserow session and requiring fresh authentication');
-        // Clear the orphaned Baserow session since we can't restore without local files
-        await this.sessionManager.updateSessionStatus('expired');
-        this.sessionManager.currentSessionId = null;
-      } else {
-        Logger.info('No existing sessions found, will require QR code authentication');
+      // Decide behavior purely based on local session presence
+      if (!hasLocalSession) {
+        Logger.info('No existing local session found, will require QR code authentication');
       }
 
       // Create the socket
@@ -219,8 +195,6 @@ class WhatsAppService {
         this.qrRequestedOnDemand = false; // Reset on-demand QR flag on successful connection
         this.startupNotificationSent = false; // Reset startup notification flag on successful connection
         this.sessionManager.cancelSessionRestoreTimeout();
-        await this.sessionManager.saveSession();
-        await this.sessionManager.updateSessionStatus('active');
         // Notify admin once on successful authentication (new or restored)
         try {
           const successMsg = (this.lastIsNewLogin === true)
@@ -237,7 +211,6 @@ class WhatsAppService {
         Logger.info('Disconnect reason:', lastDisconnect?.error?.output?.statusCode);
         Logger.info('Disconnect error:', lastDisconnect?.error);
         this.isConnected = false;
-        await this.sessionManager.updateSessionStatus('disconnected');
         
         const { DisconnectReason } = this.baileys;
         const disconnectCode = lastDisconnect?.error?.output?.statusCode;
@@ -270,7 +243,7 @@ class WhatsAppService {
               Logger.info(`Authentication logout during shutdown (attempt ${this.consecutiveAuthFailures}/${this.maxAuthFailures}): Logged out`);
             }
             
-            await this.sessionManager.updateSessionStatus('failed');
+            // no DB session status updates – local-only session management
             
             // Properly destroy the socket first to release file handles
             if (this.sock) {
@@ -428,11 +401,12 @@ class WhatsAppService {
       }
       
       if (this.sock) {
-        await this.sock.logout();
+        // Just end the connection, don't logout (which removes the linked device)
+        this.sock.end();
       }
       this.isConnected = false;
       this.isInitialized = false;
-      Logger.info('WhatsApp service destroyed');
+      Logger.info('WhatsApp service destroyed (connection ended, device remains linked)');
     } catch (error) {
       Logger.error('Error destroying WhatsApp service:', error);
     }
@@ -636,8 +610,7 @@ class WhatsAppService {
 
 // Session Manager Class
 class WhatsAppSessionManager {
-  constructor(postgresService, encryptionKey, discordClient, config, whatsappService) {
-    this.postgresService = postgresService;
+  constructor(encryptionKey, discordClient, config, whatsappService) {
     this.encryptionKey = encryptionKey;
     this.discordClient = discordClient;
     this.config = config;
@@ -650,21 +623,7 @@ class WhatsAppSessionManager {
     this.qrRequestedOnDemand = false; // Track if QR was requested via /whatsapp_auth command
   }
 
-  async getActiveSession() {
-    try {
-      const session = await this.postgresService.getActiveWhatsAppSession();
-      if (session) {
-        Logger.debug('Found active session in Baserow');
-        // Set the current session ID to the found session
-        this.currentSessionId = session.session_id;
-        return session;
-      }
-      return null;
-    } catch (error) {
-      Logger.error('Failed to get active session:', error);
-      return null;
-    }
-  }
+  // No DB-backed session lookup; rely solely on local Baileys auth files
 
   async hasLocalSession() {
     try {
@@ -680,46 +639,11 @@ class WhatsAppSessionManager {
     }
   }
 
-  async saveSession() {
-    try {
-      // Check if we already have a current session ID
-      if (!this.currentSessionId) {
-        // Generate a unique session ID for new sessions
-        this.currentSessionId = `frijolebot-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-        Logger.info(`Creating new session: ${this.currentSessionId}`);
-      } else {
-        Logger.info(`Updating existing session: ${this.currentSessionId}`);
-      }
-      
-      // Get session data from the client (this would need to be implemented)
-      // For now, just mark that we have an active session
-      // Note: session_data field in Baserow expects a string, not an object
-      const sessionData = JSON.stringify({
-        status: 'active',
-        last_activity: new Date().toISOString(),
-        device_info: 'frijolebot-whatsapp',
-        client_ready: true
-      });
-      
-      await this.postgresService.saveWhatsAppSession(this.currentSessionId, sessionData, 'active', 'frijolebot-whatsapp');
-      Logger.info(`Session saved to Baserow: ${this.currentSessionId}`);
-    } catch (error) {
-      Logger.error('Failed to save session:', error);
-    }
-  }
+  // No-op: Session persistence is handled by local files only
+  async saveSession() {}
 
-  async updateSessionStatus(status) {
-    try {
-      if (this.currentSessionId) {
-        await this.postgresService.updateWhatsAppSessionStatus(this.currentSessionId, status);
-        Logger.info(`Session status updated to: ${status}`);
-      } else {
-        Logger.warning('No current session ID available for status update');
-      }
-    } catch (error) {
-      Logger.error('Failed to update session status:', error);
-    }
-  }
+  // No-op: No DB session status updates
+  async updateSessionStatus(_) {}
 
   async handleQRCode(qr, qrRequestedOnDemand = false) {
     try {

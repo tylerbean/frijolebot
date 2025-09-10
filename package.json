@@ -1,7 +1,7 @@
 {
   "name": "discord-link-bot",
   "version": "1.0.0",
-  "description": "Discord bot that monitors channels for links and stores them in Baserow for management",
+  "description": "Discord bot that monitors channels for links and stores them in PostgreSQL for management",
   "main": "discord-link-bot.js",
   "scripts": {
     "start": "node discord-link-bot.js",
@@ -14,7 +14,7 @@
   "keywords": [
     "discord",
     "bot",
-    "baserow",
+    "postgresql",
     "link-monitoring",
     "kubernetes",
     "health-checks"
