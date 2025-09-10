@@ -25,6 +25,7 @@ class WhatsAppService {
     this.hourlyReminderInterval = null; // For hourly disconnect notifications
     this.qrRequestedOnDemand = false; // Track if QR was requested via /whatsapp_auth command
     this.startupNotificationSent = false; // Track if startup notification was sent
+    this.isShuttingDown = false; // Track if bot is shutting down
     
     Logger.info('WhatsAppService initialized');
   }
@@ -244,11 +245,13 @@ class WhatsAppService {
           try {
             this.consecutiveAuthFailures++;
             
-            // Only log as error if QR was not requested on-demand
-            if (!this.qrRequestedOnDemand) {
+            // Only log as error if QR was not requested on-demand and not shutting down
+            if (!this.qrRequestedOnDemand && !this.isShuttingDown) {
               Logger.error(`Authentication failed (attempt ${this.consecutiveAuthFailures}/${this.maxAuthFailures}): Logged out`);
-            } else {
+            } else if (this.qrRequestedOnDemand) {
               Logger.info(`Authentication reset for fresh QR generation (attempt ${this.consecutiveAuthFailures}/${this.maxAuthFailures}): Logged out`);
+            } else if (this.isShuttingDown) {
+              Logger.info(`Authentication logout during shutdown (attempt ${this.consecutiveAuthFailures}/${this.maxAuthFailures}): Logged out`);
             }
             
             await this.sessionManager.updateSessionStatus('failed');
@@ -280,8 +283,8 @@ class WhatsAppService {
               await this.sessionManager.clearLocalSession();
             }
             
-            // Send Discord alert if available (but not if QR was requested on-demand)
-            if (this.discordClient && this.config.discord.adminChannelId && !this.qrRequestedOnDemand) {
+            // Send Discord alert if available (but not if QR was requested on-demand or shutting down)
+            if (this.discordClient && this.config.discord.adminChannelId && !this.qrRequestedOnDemand && !this.isShuttingDown) {
               try {
                 const channel = this.discordClient.channels.cache.get(this.config.discord.adminChannelId);
                 if (channel) {
@@ -381,6 +384,9 @@ class WhatsAppService {
 
   async destroy() {
     try {
+      // Set shutdown flag to prevent authentication failed messages during shutdown
+      this.isShuttingDown = true;
+      
       // Clear hourly reminder interval
       if (this.hourlyReminderInterval) {
         clearInterval(this.hourlyReminderInterval);
