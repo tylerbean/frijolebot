@@ -2,6 +2,8 @@
 async function main() {
   // Dynamic imports to handle ES module compatibility
   const { Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes, Partials, MessageFlags } = await import('discord.js');
+  const fs = require('fs');
+  const path = require('path');
   const config = require('./config');
   const PostgreSQLService = require('./services/PostgreSQLService');
   const HealthCheckService = require('./services/HealthCheckService');
@@ -13,6 +15,27 @@ async function main() {
 
 Logger.startup('Bot starting...');
 Logger.startup(`Monitoring ${config.discord.channelsToMonitor.length} channels`);
+
+  // Run lock handling to detect ungraceful previous shutdowns
+  const RUN_LOCK_PATH = path.join(process.cwd(), 'run.lock');
+  let previousUncleanShutdown = false;
+  let previousRunInfo = null;
+  try {
+    if (fs.existsSync(RUN_LOCK_PATH)) {
+      previousUncleanShutdown = true;
+      try {
+        const raw = fs.readFileSync(RUN_LOCK_PATH, 'utf-8');
+        previousRunInfo = JSON.parse(raw);
+      } catch (_) {
+        // ignore parse errors
+      }
+    }
+    const currentLock = { pid: process.pid, startedAt: new Date().toISOString() };
+    fs.writeFileSync(RUN_LOCK_PATH, JSON.stringify(currentLock));
+    Logger.info('Run lock created');
+  } catch (e) {
+    Logger.warning(`Failed to manage run.lock: ${e.message}`);
+  }
 
 // Initialize services
 const postgresService = new PostgreSQLService(config.postgres);
@@ -92,6 +115,10 @@ async function executeReadyLogic() {
                 return ch ? `- #${ch.name} (${id})` : `- (unavailable) ${id}`;
             });
             await adminChannel.send(`🧭 **Monitoring channels:**\n${lines.join('\n')}`);
+            if (previousUncleanShutdown) {
+              const info = previousRunInfo?.startedAt ? ` (previous start: ${previousRunInfo.startedAt})` : '';
+              await adminChannel.send(`🟠 **Previous run did not shut down cleanly**${info}. Recovery checks performed.`);
+            }
         } else {
             Logger.warning('Admin channel not found; startup messages not sent');
         }
@@ -151,6 +178,18 @@ async function executeReadyLogic() {
           await executeReadyLogic();
       });
   }
+
+// Helper to best-effort send an admin message during shutdown
+async function sendShutdownNotice(message) {
+    try {
+        if (client && client.isReady && client.isReady()) {
+            const ch = client.channels.cache.get(config.discord.adminChannelId);
+            if (ch) {
+                await ch.send(message);
+            }
+        }
+    } catch (_) {}
+}
 
 // Handle slash commands
 client.on('interactionCreate', async interaction => {
@@ -266,6 +305,7 @@ process.on('unhandledRejection', (error) => {
 
 process.on('SIGINT', async () => {
     Logger.startup('Shutting down bot...');
+    await sendShutdownNotice('🛑 **FrijoleBot shutting down** (SIGINT)');
     if (healthCheckService) {
         healthCheckService.stop();
     }
@@ -276,11 +316,13 @@ process.on('SIGINT', async () => {
         await whatsappService.destroy();
     }
     client.destroy();
+    try { fs.existsSync(RUN_LOCK_PATH) && fs.rmSync(RUN_LOCK_PATH); } catch (_) {}
     process.exit(0);
 });
 
 process.on('SIGTERM', async () => {
     Logger.startup('Received SIGTERM, shutting down gracefully...');
+    await sendShutdownNotice('🛑 **FrijoleBot shutting down** (SIGTERM)');
     if (healthCheckService) {
         healthCheckService.stop();
     }
@@ -291,6 +333,7 @@ process.on('SIGTERM', async () => {
         await whatsappService.destroy();
     }
     client.destroy();
+    try { fs.existsSync(RUN_LOCK_PATH) && fs.rmSync(RUN_LOCK_PATH); } catch (_) {}
     process.exit(0);
 });
 
