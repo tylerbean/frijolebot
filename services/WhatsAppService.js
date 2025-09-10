@@ -23,6 +23,7 @@ class WhatsAppService {
     this.totalRestartAttempts = 0; // Track total restart attempts
     this.maxRestartAttempts = 10; // Maximum total restart attempts before giving up
     this.hourlyReminderInterval = null; // For hourly disconnect notifications
+    this.qrRequestedOnDemand = false; // Track if QR was requested via /whatsapp_auth command
     
     Logger.info('WhatsAppService initialized');
   }
@@ -207,6 +208,7 @@ class WhatsAppService {
         this.consecutiveAuthFailures = 0; // Reset failure counter on successful connection
         this.totalRestartAttempts = 0; // Reset restart counter on successful connection
         this.sessionManager.qrCodeSent = false; // Reset QR code sent flag on successful connection
+        this.qrRequestedOnDemand = false; // Reset on-demand QR flag on successful connection
         this.sessionManager.cancelSessionRestoreTimeout();
         await this.sessionManager.saveSession();
         await this.sessionManager.updateSessionStatus('active');
@@ -525,30 +527,31 @@ class WhatsAppService {
         };
       }
 
-      Logger.info('Manual QR code requested by admin');
+      Logger.info('Manual QR code requested by admin - generating fresh QR code');
       
-      // Check if we have a stored QR code
-      if (this.sessionManager.currentQRCode) {
-        Logger.info('Using stored QR code for on-demand request');
-        await this.sessionManager.sendQRCodeToDiscord(this.sessionManager.currentQRCode);
-        return {
-          success: true,
-          message: 'QR code sent to admin channel.'
-        };
-      }
+      // Set flag to indicate QR was requested on-demand
+      this.qrRequestedOnDemand = true;
       
-      // No stored QR code, need to generate a new one
-      Logger.info('No stored QR code found, generating new one...');
-      
+      // Always generate a fresh QR code to ensure it's not expired
       // Clear any existing session to force QR generation
       await this.sessionManager.clearLocalSession();
       
-      // Reinitialize the client to generate a new QR code
+      // Destroy current socket to ensure clean state
+      if (this.sock) {
+        try {
+          await this.sock.logout();
+        } catch (logoutError) {
+          Logger.debug('Error during logout (expected):', logoutError.message);
+        }
+        this.sock = null;
+      }
+      
+      // Reinitialize the client to generate a fresh QR code
       await this.initializeClient();
       
       return {
         success: true,
-        message: 'QR code generation initiated. Check the admin channel.'
+        message: 'Fresh QR code generation initiated. Check the admin channel.'
       };
     } catch (error) {
       Logger.error('Error generating QR code on demand:', error);
@@ -655,6 +658,15 @@ class WhatsAppSessionManager {
       
       // Store the QR code for on-demand sending, but don't send it automatically
       this.currentQRCode = qr;
+      
+      // If QR was requested on-demand, send it immediately
+      if (this.qrRequestedOnDemand) {
+        Logger.info('QR code requested on-demand - sending immediately to Discord');
+        await this.sessionManager.sendQRCodeToDiscord(qr);
+        this.qrRequestedOnDemand = false; // Reset flag
+        return;
+      }
+      
       Logger.info('QR code stored for on-demand sending. Use `/whatsapp_auth` command to request it.');
       
       // If we have an existing session, wait a bit to see if it restores successfully
