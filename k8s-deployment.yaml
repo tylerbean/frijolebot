@@ -43,26 +43,31 @@ spec:
             configMapKeyRef:
               name: frijolebot-config
               key: discord-channel-links
-        - name: BASEROW_API_TOKEN
+        - name: POSTGRES_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: frijolebot-config
+              key: postgres-host
+        - name: POSTGRES_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: frijolebot-config
+              key: postgres-port
+        - name: POSTGRES_DATABASE
+          valueFrom:
+            configMapKeyRef:
+              name: frijolebot-config
+              key: postgres-database
+        - name: POSTGRES_USER
+          valueFrom:
+            configMapKeyRef:
+              name: frijolebot-config
+              key: postgres-user
+        - name: POSTGRES_PASSWORD
           valueFrom:
             secretKeyRef:
               name: frijolebot-secrets
-              key: baserow-api-token
-        - name: BASEROW_API_URL
-          valueFrom:
-            configMapKeyRef:
-              name: frijolebot-config
-              key: baserow-api-url
-        - name: BASEROW_LINKS_TABLE_ID
-          valueFrom:
-            configMapKeyRef:
-              name: frijolebot-config
-              key: baserow-links-table-id
-        - name: BASEROW_DM_MAPPING_TABLE_ID
-          valueFrom:
-            configMapKeyRef:
-              name: frijolebot-config
-              key: baserow-dm-mapping-table-id
+              key: postgres-password
         - name: HEALTH_CHECK_PORT
           value: "3000"
         - name: NODE_ENV
@@ -99,9 +104,14 @@ spec:
         volumeMounts:
         - name: logs
           mountPath: /app/logs
+        - name: whatsapp-sessions
+          mountPath: /app/auth_info_baileys
       volumes:
       - name: logs
         emptyDir: {}
+      - name: whatsapp-sessions
+        persistentVolumeClaim:
+          claimName: frijolebot-whatsapp-sessions
       restartPolicy: Always
 ---
 apiVersion: v1
@@ -127,9 +137,10 @@ data:
   discord-guild-id: "YOUR_GUILD_ID"
   discord-channel-general: "YOUR_GENERAL_CHANNEL_ID"
   discord-channel-links: "YOUR_LINKS_CHANNEL_ID"
-  baserow-api-url: "https://your-baserow-instance.com/api/database/table/"
-  baserow-links-table-id: "123"
-  baserow-dm-mapping-table-id: "43"
+  postgres-host: "postgres-service"
+  postgres-port: "5432"
+  postgres-database: "frijolebot"
+  postgres-user: "frijolebot"
 ---
 apiVersion: v1
 kind: Secret
@@ -139,4 +150,15 @@ type: Opaque
 data:
   # Base64 encoded values
   discord-bot-token: "YOUR_BASE64_ENCODED_DISCORD_TOKEN"
-  baserow-api-token: "YOUR_BASE64_ENCODED_BASEROW_TOKEN"
+  postgres-password: "YOUR_BASE64_ENCODED_POSTGRES_PASSWORD"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: frijolebot-whatsapp-sessions
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
