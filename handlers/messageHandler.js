@@ -8,6 +8,10 @@ class MessageHandler {
 
     async handleMessage(message) {
         try {
+            // Feature flag: LinkTracker gate
+            if (process.env.LINK_TRACKER_ENABLED === 'false') {
+                return;
+            }
             // Skip bot messages
             if (message.author.bot) return;
             
