@@ -1,5 +1,5 @@
 const WhatsAppService = require('../../services/WhatsAppService');
-const BaserowService = require('../../services/BaserowService');
+const PostgreSQLService = require('../../services/PostgreSQLService');
 const Logger = require('../../utils/logger');
 
 // Mock external dependencies
@@ -105,7 +105,7 @@ describe('WhatsApp Integration Tests', () => {
             
             expect(whatsappService.messageHandler).toBeDefined();
             expect(whatsappService.sessionManager).toBeDefined();
-            expect(whatsappService.baserowService).toBeDefined();
+            // No baserowService anymore
         });
     });
 

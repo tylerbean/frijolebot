@@ -454,10 +454,9 @@ class WhatsAppService {
         return;
       }
 
-      // Check if we have a valid session
-      const hasValidSession = await this.sessionManager.getActiveSession();
-      
-      if (!hasValidSession && !this.startupNotificationSent) {
+      // If not connected and no local session, notify admin once
+      const hasLocal = await this.sessionManager.hasLocalSession();
+      if (!hasLocal && !this.startupNotificationSent) {
         // No valid session found - notify admin (only once on startup)
         await this.sendAdminNotification(
           'Not authenticated. Use `/whatsapp_auth` command to generate a QR code for authentication.',

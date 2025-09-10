@@ -2,20 +2,19 @@ const ReactionHandler = require('../../handlers/reactionHandler');
 const { mockConfig, mockDiscordReaction, mockDMMapping, mockBaserowLink } = require('../fixtures/mockData');
 
 // Mock dependencies
-jest.mock('../../services/BaserowService');
 jest.mock('../../utils/logger');
 
-const BaserowService = require('../../services/BaserowService');
+const PostgreSQLService = require('../../services/PostgreSQLService');
 const Logger = require('../../utils/logger');
 
 describe('ReactionHandler', () => {
   let reactionHandler;
-  let mockBaserowService;
+  let mockPostgresService;
   let mockReaction;
   let mockUser;
 
   beforeEach(() => {
-    mockBaserowService = {
+    mockPostgresService = {
       findDMMapping: jest.fn(),
       updateReadStatus: jest.fn(),
       updateReadStatusFromReaction: jest.fn(),
@@ -23,15 +22,15 @@ describe('ReactionHandler', () => {
       findLinkByMessageIdAllGuilds: jest.fn()
     };
 
-    reactionHandler = new ReactionHandler(mockBaserowService, mockConfig);
+    reactionHandler = new ReactionHandler(mockPostgresService, mockConfig);
     mockReaction = { ...mockDiscordReaction };
     mockUser = { id: '987654321', username: 'testuser' };
     jest.clearAllMocks();
   });
 
   describe('constructor', () => {
-    it('should initialize with BaserowService and config', () => {
-      expect(reactionHandler.baserowService).toBe(mockBaserowService);
+    it('should initialize with PostgreSQLService and config', () => {
+      expect(reactionHandler.postgresService).toBe(mockPostgresService);
       expect(reactionHandler.config).toBe(mockConfig);
     });
   });
@@ -42,11 +41,11 @@ describe('ReactionHandler', () => {
       mockReaction.message.guild = { id: '123456789' };
       mockReaction.message.id = '123456789';
       mockReaction.message.channel.id = '111111111'; // This channel is in the monitored channels
-      mockBaserowService.updateReadStatusFromReaction.mockResolvedValue(true);
+      mockPostgresService.updateReadStatusFromReaction.mockResolvedValue(true);
 
       await reactionHandler.handleReactionAdd(mockReaction, mockUser);
 
-      expect(mockBaserowService.updateReadStatusFromReaction).toHaveBeenCalledWith(
+      expect(mockPostgresService.updateReadStatusFromReaction).toHaveBeenCalledWith(
         '123456789',
         '123456789',
         'testuser',
@@ -58,16 +57,16 @@ describe('ReactionHandler', () => {
       mockReaction.message.guild = null;
       mockReaction.message.id = '123456789';
       mockReaction.emoji.name = '1️⃣'; // Ensure correct emoji name
-      mockBaserowService.findDMMapping.mockResolvedValue(mockDMMapping);
-      mockBaserowService.updateReadStatus.mockResolvedValue(true);
+      mockPostgresService.findDMMapping.mockResolvedValue(mockDMMapping);
+      mockPostgresService.updateReadStatus.mockResolvedValue(true);
 
       await reactionHandler.handleReactionAdd(mockReaction, mockUser);
 
-      expect(mockBaserowService.findDMMapping).toHaveBeenCalledWith(
+      expect(mockPostgresService.findDMMapping).toHaveBeenCalledWith(
         '123456789',
         '1️⃣'
       );
-      expect(mockBaserowService.updateReadStatus).toHaveBeenCalledWith(
+      expect(mockPostgresService.updateReadStatus).toHaveBeenCalledWith(
         '1413199319758012447',
         '611026701299875853',
         true
@@ -88,7 +87,7 @@ describe('ReactionHandler', () => {
 
       await reactionHandler.handleReactionAdd(mockReaction, mockUser);
 
-      expect(mockBaserowService.updateReadStatusFromReaction).not.toHaveBeenCalled();
+      expect(mockPostgresService.updateReadStatusFromReaction).not.toHaveBeenCalled();
     });
   });
 
@@ -98,11 +97,11 @@ describe('ReactionHandler', () => {
       mockReaction.message.guild = { id: '123456789' };
       mockReaction.message.id = '123456789';
       mockReaction.message.channel.id = '111111111'; // This channel is in the monitored channels
-      mockBaserowService.updateReadStatusFromReaction.mockResolvedValue(true);
+      mockPostgresService.updateReadStatusFromReaction.mockResolvedValue(true);
 
       await reactionHandler.handleReactionRemove(mockReaction, mockUser);
 
-      expect(mockBaserowService.updateReadStatusFromReaction).toHaveBeenCalledWith(
+      expect(mockPostgresService.updateReadStatusFromReaction).toHaveBeenCalledWith(
         '123456789',
         '123456789',
         'testuser',
@@ -114,16 +113,16 @@ describe('ReactionHandler', () => {
       mockReaction.message.guild = null;
       mockReaction.message.id = '123456789';
       mockReaction.emoji.name = '1️⃣'; // Ensure correct emoji name
-      mockBaserowService.findDMMapping.mockResolvedValue(mockDMMapping);
-      mockBaserowService.updateReadStatus.mockResolvedValue(true);
+      mockPostgresService.findDMMapping.mockResolvedValue(mockDMMapping);
+      mockPostgresService.updateReadStatus.mockResolvedValue(true);
 
       await reactionHandler.handleReactionRemove(mockReaction, mockUser);
 
-      expect(mockBaserowService.findDMMapping).toHaveBeenCalledWith(
+      expect(mockPostgresService.findDMMapping).toHaveBeenCalledWith(
         '123456789',
         '1️⃣'
       );
-      expect(mockBaserowService.updateReadStatus).toHaveBeenCalledWith(
+      expect(mockPostgresService.updateReadStatus).toHaveBeenCalledWith(
         '1413199319758012447',
         '611026701299875853',
         false
@@ -143,12 +142,12 @@ describe('ReactionHandler', () => {
   describe('handleDMReaction', () => {
     it('should handle individual DM reaction', async () => {
       mockReaction.emoji.name = '1️⃣'; // Ensure correct emoji name
-      mockBaserowService.findDMMapping.mockResolvedValue(mockDMMapping);
-      mockBaserowService.updateReadStatus.mockResolvedValue(true);
+      mockPostgresService.findDMMapping.mockResolvedValue(mockDMMapping);
+      mockPostgresService.updateReadStatus.mockResolvedValue(true);
 
       await reactionHandler.handleDMReaction(mockReaction, mockUser);
 
-      expect(mockBaserowService.updateReadStatus).toHaveBeenCalledWith(
+      expect(mockPostgresService.updateReadStatus).toHaveBeenCalledWith(
         '1413199319758012447',
         '611026701299875853',
         true
@@ -162,34 +161,34 @@ describe('ReactionHandler', () => {
         original_message_id: '["1413199319758012447", "987654321"]'
       };
       mockReaction.emoji.name = '✅';
-      mockBaserowService.findDMMapping.mockResolvedValue(bulkMapping);
-      mockBaserowService.findLinkByMessageIdAllGuilds.mockResolvedValue(mockBaserowLink);
-      mockBaserowService.updateReadStatus.mockResolvedValue(true);
+      mockPostgresService.findDMMapping.mockResolvedValue(bulkMapping);
+      mockPostgresService.findLinkByMessageIdAllGuilds.mockResolvedValue(mockBaserowLink);
+      mockPostgresService.updateReadStatus.mockResolvedValue(true);
 
       await reactionHandler.handleDMReaction(mockReaction, mockUser);
 
-      expect(mockBaserowService.findLinkByMessageIdAllGuilds).toHaveBeenCalledTimes(2);
-      expect(mockBaserowService.updateReadStatus).toHaveBeenCalledTimes(2);
+      expect(mockPostgresService.findLinkByMessageIdAllGuilds).toHaveBeenCalledTimes(2);
+      expect(mockPostgresService.updateReadStatus).toHaveBeenCalledTimes(2);
     });
 
     it('should handle missing DM mapping', async () => {
-      mockBaserowService.findDMMapping.mockResolvedValue(null);
+      mockPostgresService.findDMMapping.mockResolvedValue(null);
 
       await reactionHandler.handleDMReaction(mockReaction, mockUser);
 
-      expect(mockBaserowService.updateReadStatus).not.toHaveBeenCalled();
+      expect(mockPostgresService.updateReadStatus).not.toHaveBeenCalled();
     });
   });
 
   describe('handleDMReactionRemove', () => {
     it('should handle individual DM reaction removal', async () => {
       mockReaction.emoji.name = '1️⃣';
-      mockBaserowService.findDMMapping.mockResolvedValue(mockDMMapping);
-      mockBaserowService.updateReadStatus.mockResolvedValue(true);
+      mockPostgresService.findDMMapping.mockResolvedValue(mockDMMapping);
+      mockPostgresService.updateReadStatus.mockResolvedValue(true);
 
       await reactionHandler.handleDMReactionRemove(mockReaction, mockUser);
 
-      expect(mockBaserowService.updateReadStatus).toHaveBeenCalledWith(
+      expect(mockPostgresService.updateReadStatus).toHaveBeenCalledWith(
         '1413199319758012447',
         '611026701299875853',
         false
@@ -203,14 +202,14 @@ describe('ReactionHandler', () => {
         original_message_id: '["1413199319758012447", "987654321"]'
       };
       mockReaction.emoji.name = '✅';
-      mockBaserowService.findDMMapping.mockResolvedValue(bulkMapping);
-      mockBaserowService.findLinkByMessageIdAllGuilds.mockResolvedValue(mockBaserowLink);
-      mockBaserowService.updateReadStatus.mockResolvedValue(true);
+      mockPostgresService.findDMMapping.mockResolvedValue(bulkMapping);
+      mockPostgresService.findLinkByMessageIdAllGuilds.mockResolvedValue(mockBaserowLink);
+      mockPostgresService.updateReadStatus.mockResolvedValue(true);
 
       await reactionHandler.handleDMReactionRemove(mockReaction, mockUser);
 
-      expect(mockBaserowService.findLinkByMessageIdAllGuilds).toHaveBeenCalledTimes(2);
-      expect(mockBaserowService.updateReadStatus).toHaveBeenCalledTimes(2);
+      expect(mockPostgresService.findLinkByMessageIdAllGuilds).toHaveBeenCalledTimes(2);
+      expect(mockPostgresService.updateReadStatus).toHaveBeenCalledTimes(2);
     });
   });
 
@@ -224,14 +223,14 @@ describe('ReactionHandler', () => {
         }
       };
       mockReaction.message.id = 'message-123';
-      mockBaserowService.deleteLink.mockResolvedValue(true);
+      mockPostgresService.deleteLink.mockResolvedValue(true);
 
       // Mock admin check
       jest.spyOn(reactionHandler, 'isUserAdmin').mockResolvedValue(true);
 
       await reactionHandler.handleDeletionReaction(mockReaction, mockUser);
 
-      expect(mockBaserowService.deleteLink).toHaveBeenCalledWith(
+      expect(mockPostgresService.deleteLink).toHaveBeenCalledWith(
         'message-123',
         '123456789'
       );
@@ -252,7 +251,7 @@ describe('ReactionHandler', () => {
 
       await reactionHandler.handleDeletionReaction(mockReaction, mockUser);
 
-      expect(mockBaserowService.deleteLink).not.toHaveBeenCalled();
+      expect(mockPostgresService.deleteLink).not.toHaveBeenCalled();
     });
   });
 
@@ -295,12 +294,12 @@ describe('ReactionHandler', () => {
   });
 
   describe('error handling', () => {
-    it('should handle BaserowService errors gracefully', async () => {
+    it('should handle service errors gracefully', async () => {
       mockReaction.emoji.name = '✅';
       mockReaction.message.guild = { id: '123456789' };
       mockReaction.message.id = '123456789';
       mockReaction.message.channel.id = '111111111';
-      mockBaserowService.updateReadStatusFromReaction.mockRejectedValue(new Error('Service error'));
+      mockPostgresService.updateReadStatusFromReaction.mockRejectedValue(new Error('Service error'));
 
       await reactionHandler.handleReactionAdd(mockReaction, mockUser);
 
@@ -313,7 +312,7 @@ describe('ReactionHandler', () => {
     it('should handle DM reaction errors gracefully', async () => {
       mockReaction.message.guild = null;
       mockReaction.message.id = '123456789';
-      mockBaserowService.findDMMapping.mockRejectedValue(new Error('DM error'));
+      mockPostgresService.findDMMapping.mockRejectedValue(new Error('DM error'));
 
       await reactionHandler.handleReactionAdd(mockReaction, mockUser);
 
@@ -328,7 +327,7 @@ describe('ReactionHandler', () => {
       mockReaction.message.guild = { id: '123456789' };
       mockReaction.message.id = '123456789';
       mockReaction.message.channel.id = '111111111';
-      mockBaserowService.updateReadStatusFromReaction.mockRejectedValue(new Error('Remove error'));
+      mockPostgresService.updateReadStatusFromReaction.mockRejectedValue(new Error('Remove error'));
 
       await reactionHandler.handleReactionRemove(mockReaction, mockUser);
 
@@ -341,7 +340,7 @@ describe('ReactionHandler', () => {
     it('should handle DM reaction remove errors gracefully', async () => {
       mockReaction.message.guild = null;
       mockReaction.message.id = '123456789';
-      mockBaserowService.findDMMapping.mockRejectedValue(new Error('DM remove error'));
+      mockPostgresService.findDMMapping.mockRejectedValue(new Error('DM remove error'));
 
       await reactionHandler.handleReactionRemove(mockReaction, mockUser);
 
@@ -375,7 +374,7 @@ describe('ReactionHandler', () => {
       mockReaction.message.id = '123456789';
       mockReaction.message.channel.id = '111111111';
       mockReaction.message.delete = jest.fn().mockRejectedValue(new Error('Delete error'));
-      mockBaserowService.deleteLink.mockResolvedValue(true);
+      mockPostgresService.deleteLink.mockResolvedValue(true);
 
       await reactionHandler.handleDeletionReaction(mockReaction, mockUser);
 
@@ -402,7 +401,7 @@ describe('ReactionHandler', () => {
       mockReaction.message.channel.id = '111111111';
 
       await reactionHandler.handleReactionAdd(mockReaction, mockUser);
-      expect(mockBaserowService.updateReadStatusFromReaction).not.toHaveBeenCalled();
+      expect(mockPostgresService.updateReadStatusFromReaction).not.toHaveBeenCalled();
     });
 
     it('should handle reaction with undefined emoji name', async () => {
@@ -412,7 +411,7 @@ describe('ReactionHandler', () => {
       mockReaction.message.channel.id = '111111111';
 
       await reactionHandler.handleReactionAdd(mockReaction, mockUser);
-      expect(mockBaserowService.updateReadStatusFromReaction).not.toHaveBeenCalled();
+      expect(mockPostgresService.updateReadStatusFromReaction).not.toHaveBeenCalled();
     });
 
     it('should handle reaction with empty emoji name', async () => {
@@ -422,17 +421,17 @@ describe('ReactionHandler', () => {
       mockReaction.message.channel.id = '111111111';
 
       await reactionHandler.handleReactionAdd(mockReaction, mockUser);
-      expect(mockBaserowService.updateReadStatusFromReaction).not.toHaveBeenCalled();
+      expect(mockPostgresService.updateReadStatusFromReaction).not.toHaveBeenCalled();
     });
 
     it('should handle reaction with no message guild and no DM mapping', async () => {
       mockReaction.emoji.name = '✅';
       mockReaction.message.guild = null;
       mockReaction.message.id = '123456789';
-      mockBaserowService.findDMMapping.mockResolvedValue(null);
+      mockPostgresService.findDMMapping.mockResolvedValue(null);
 
       await reactionHandler.handleReactionAdd(mockReaction, mockUser);
-      expect(mockBaserowService.updateReadStatusFromReaction).not.toHaveBeenCalled();
+      expect(mockPostgresService.updateReadStatusFromReaction).not.toHaveBeenCalled();
     });
 
     it('should handle reaction with no message guild and expired DM mapping', async () => {
@@ -443,10 +442,10 @@ describe('ReactionHandler', () => {
         ...mockDMMapping,
         expires_at: new Date(Date.now() - 1000).toISOString() // Expired 1 second ago
       };
-      mockBaserowService.findDMMapping.mockResolvedValue(expiredMapping);
+      mockPostgresService.findDMMapping.mockResolvedValue(expiredMapping);
 
       await reactionHandler.handleReactionAdd(mockReaction, mockUser);
-      expect(mockBaserowService.updateReadStatusFromReaction).not.toHaveBeenCalled();
+      expect(mockPostgresService.updateReadStatusFromReaction).not.toHaveBeenCalled();
     });
 
     it('should handle deletion reaction with no link found', async () => {
@@ -459,10 +458,10 @@ describe('ReactionHandler', () => {
       };
       mockReaction.message.id = '123456789';
       mockReaction.message.channel.id = '111111111';
-      mockBaserowService.findLinkByMessageIdAllGuilds.mockResolvedValue(null);
+      mockPostgresService.findLinkByMessageIdAllGuilds.mockResolvedValue(null);
 
       await reactionHandler.handleDeletionReaction(mockReaction, mockUser);
-      expect(mockBaserowService.deleteLink).not.toHaveBeenCalled();
+      expect(mockPostgresService.deleteLink).not.toHaveBeenCalled();
     });
 
     it('should handle deletion reaction with deleteLink error', async () => {
@@ -475,8 +474,8 @@ describe('ReactionHandler', () => {
       };
       mockReaction.message.id = '123456789';
       mockReaction.message.channel.id = '111111111';
-      mockBaserowService.findLinkByMessageIdAllGuilds.mockResolvedValue(mockBaserowLink);
-      mockBaserowService.deleteLink.mockRejectedValue(new Error('Delete failed'));
+      mockPostgresService.findLinkByMessageIdAllGuilds.mockResolvedValue(mockBaserowLink);
+      mockPostgresService.deleteLink.mockRejectedValue(new Error('Delete failed'));
 
       await expect(reactionHandler.handleDeletionReaction(mockReaction, mockUser)).resolves.not.toThrow();
       expect(Logger.error).toHaveBeenCalled();
@@ -486,8 +485,8 @@ describe('ReactionHandler', () => {
       mockReaction.emoji.name = '🗑️';
       mockReaction.message.guild = null;
       mockReaction.message.id = '123456789';
-      mockBaserowService.findDMMapping.mockResolvedValue(mockDMMapping);
-      mockBaserowService.findLinkByMessageIdAllGuilds.mockResolvedValue(null);
+      mockPostgresService.findDMMapping.mockResolvedValue(mockDMMapping);
+      mockPostgresService.findLinkByMessageIdAllGuilds.mockResolvedValue(null);
 
       // DM deletion reactions should be skipped since there's no guild
       await expect(reactionHandler.handleDeletionReaction(mockReaction, mockUser)).rejects.toThrow();

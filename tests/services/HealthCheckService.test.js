@@ -2,27 +2,22 @@ const HealthCheckService = require('../../services/HealthCheckService');
 const { mockConfig, mockDiscordClient } = require('../fixtures/mockData');
 
 // Mock dependencies
-jest.mock('../../services/BaserowService');
 jest.mock('../../utils/logger');
-
-const BaserowService = require('../../services/BaserowService');
 const Logger = require('../../utils/logger');
 
 describe('HealthCheckService', () => {
   let healthCheckService;
-  let mockBaserowService;
+  let mockPostgresService;
   let mockServer;
 
   beforeEach(() => {
-    mockBaserowService = {
-      testConnection: jest.fn(),
-      linksApiUrl: 'https://test-baserow.com/api/database/table/123/',
-      dmMappingApiUrl: 'https://test-baserow.com/api/database/table/456/'
+    mockPostgresService = {
+      testConnection: jest.fn()
     };
 
     healthCheckService = new HealthCheckService(
       mockDiscordClient,
-      mockBaserowService,
+      mockPostgresService,
       mockConfig
     );
 
@@ -45,7 +40,7 @@ describe('HealthCheckService', () => {
   describe('constructor', () => {
     it('should initialize with correct configuration', () => {
       expect(healthCheckService.discordClient).toBe(mockDiscordClient);
-      expect(healthCheckService.baserowService).toBe(mockBaserowService);
+      expect(healthCheckService.postgresService).toBe(mockPostgresService);
       expect(healthCheckService.config).toBe(mockConfig);
       expect(healthCheckService.port).toBe(mockConfig.health.port);
       expect(healthCheckService.isReady).toBe(false);
@@ -92,7 +87,7 @@ describe('HealthCheckService', () => {
 
   describe('handleReadinessProbe', () => {
     it('should return ready status when all checks pass', async () => {
-      mockBaserowService.testConnection.mockResolvedValue({
+      mockPostgresService.testConnection.mockResolvedValue({
         success: true,
         responseTime: 100,
         tables: {
@@ -117,7 +112,7 @@ describe('HealthCheckService', () => {
     });
 
     it('should return not ready status when checks fail', async () => {
-      mockBaserowService.testConnection.mockRejectedValue(new Error('Connection failed'));
+      mockPostgresService.testConnection.mockRejectedValue(new Error('Connection failed'));
 
       const mockRes = {
         writeHead: jest.fn(),
@@ -135,7 +130,7 @@ describe('HealthCheckService', () => {
     });
 
     it('should return not ready when service is not ready', async () => {
-      mockBaserowService.testConnection.mockResolvedValue({
+      mockPostgresService.testConnection.mockResolvedValue({
         success: true,
         responseTime: 100
       });
@@ -158,7 +153,7 @@ describe('HealthCheckService', () => {
 
   describe('handleHealthCheck', () => {
     it('should return healthy status when all checks pass', async () => {
-      mockBaserowService.testConnection.mockResolvedValue({
+      mockPostgresService.testConnection.mockResolvedValue({
         success: true,
         responseTime: 100,
         tables: {
@@ -183,7 +178,7 @@ describe('HealthCheckService', () => {
     });
 
     it('should return unhealthy status when checks fail', async () => {
-      mockBaserowService.testConnection.mockRejectedValue(new Error('Connection failed'));
+      mockPostgresService.testConnection.mockRejectedValue(new Error('Connection failed'));
 
       const mockRes = {
         writeHead: jest.fn(),
@@ -244,70 +239,7 @@ describe('HealthCheckService', () => {
     });
   });
 
-  describe('checkBaserowConnection', () => {
-    it('should return connected status when Baserow is accessible', async () => {
-      mockBaserowService.testConnection.mockResolvedValue({
-        success: true,
-        responseTime: 150,
-        tables: {
-          links: {
-            success: true,
-            responseTime: 75,
-            dataCount: 5
-          },
-          dmMapping: {
-            success: true,
-            responseTime: 75,
-            dataCount: 2
-          }
-        }
-      });
-
-      const result = await healthCheckService.checkBaserowConnection();
-
-      expect(result).toEqual({
-        connected: true,
-        status: 'connected',
-        response_time: 150,
-        tables: {
-          links: {
-            connected: true,
-            response_time: 75,
-            api_url: mockBaserowService.linksApiUrl,
-            data_count: 5
-          },
-          dmMapping: {
-            connected: true,
-            response_time: 75,
-            api_url: mockBaserowService.dmMappingApiUrl,
-            data_count: 2
-          }
-        }
-      });
-    });
-
-    it('should return error status when Baserow is not accessible', async () => {
-      mockBaserowService.testConnection.mockRejectedValue(new Error('Connection failed'));
-
-      const result = await healthCheckService.checkBaserowConnection();
-
-      expect(result).toEqual({
-        connected: false,
-        status: 'error',
-        error: 'Connection failed',
-        tables: {
-          links: {
-            connected: false,
-            api_url: mockBaserowService.linksApiUrl
-          },
-          dmMapping: {
-            connected: false,
-            api_url: mockBaserowService.dmMappingApiUrl
-          }
-        }
-      });
-    });
-  });
+  // Removed Baserow connection checks in HealthCheckService
 
   describe('checkMemoryUsage', () => {
     it('should return memory usage information', () => {

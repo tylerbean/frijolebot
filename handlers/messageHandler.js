@@ -1,8 +1,8 @@
 const Logger = require('../utils/logger');
 
 class MessageHandler {
-    constructor(baserowService) {
-        this.baserowService = baserowService;
+    constructor(postgresService) {
+        this.postgresService = postgresService;
         this.urlRegex = /(https?:\/\/[^\s]+)/g;
     }
 
@@ -17,9 +17,9 @@ class MessageHandler {
             
             Logger.info(`Found ${urls.length} URL(s) in #${message.channel.name} from ${message.author.username}`);
             
-            // Store links in Baserow with guild_id
+            // Store links in PostgreSQL with guild_id
             for (const url of urls) {
-                await this.baserowService.storeLink(message, url, message.guild.id);
+                await this.postgresService.storeLink(message, url, message.guild.id);
             }
             
             // Add green checkmark reaction to the message

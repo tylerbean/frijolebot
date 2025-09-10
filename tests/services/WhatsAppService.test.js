@@ -52,18 +52,7 @@ jest.mock('path', () => ({
     join: jest.fn().mockReturnValue('/mock/path/auth_info_baileys')
 }));
 
-// Mock BaserowService
-jest.mock('../../services/BaserowService', () => {
-    return jest.fn().mockImplementation(() => ({
-        getActiveChats: jest.fn().mockResolvedValue([]),
-        isChatMonitored: jest.fn().mockResolvedValue(false),
-        getDiscordChannelForChat: jest.fn().mockResolvedValue(null),
-        storeWhatsAppMessage: jest.fn().mockResolvedValue({}),
-        saveWhatsAppSession: jest.fn().mockResolvedValue({}),
-        updateWhatsAppSessionStatus: jest.fn().mockResolvedValue(true),
-        getActiveWhatsAppSession: jest.fn().mockResolvedValue(null)
-    }));
-});
+// No BaserowService anymore; tests focus on WhatsAppService behavior
 
 describe('WhatsAppService', () => {
     let whatsappService;
@@ -229,9 +218,7 @@ describe('WhatsAppService', () => {
             // After initialization
             await whatsappService.initialize();
             expect(typeof whatsappService.sessionManager.hasLocalSession).toBe('function');
-            expect(typeof whatsappService.sessionManager.getActiveSession).toBe('function');
-            expect(typeof whatsappService.sessionManager.saveSession).toBe('function');
-            expect(typeof whatsappService.sessionManager.updateSessionStatus).toBe('function');
+            expect(typeof whatsappService.sessionManager.hasLocalSession).toBe('function');
         });
     });
 

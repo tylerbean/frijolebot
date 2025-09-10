@@ -2,25 +2,24 @@ const CommandHandler = require('../../handlers/commandHandler');
 const { mockConfig, mockDiscordInteraction } = require('../fixtures/mockData');
 
 // Mock dependencies
-jest.mock('../../services/BaserowService');
 jest.mock('../../handlers/reactionHandler');
 jest.mock('../../utils/logger');
 jest.mock('../../utils/rateLimiter');
 
-const BaserowService = require('../../services/BaserowService');
+const PostgreSQLService = require('../../services/PostgreSQLService');
 const ReactionHandler = require('../../handlers/reactionHandler');
 const Logger = require('../../utils/logger');
 const RateLimiter = require('../../utils/rateLimiter');
 
 describe('CommandHandler - Rate Limiting', () => {
   let commandHandler;
-  let mockBaserowService;
+  let mockPostgresService;
   let mockReactionHandler;
   let mockInteraction;
   let mockRateLimiter;
 
   beforeEach(() => {
-    mockBaserowService = {
+    mockPostgresService = {
       getUnreadLinksForUser: jest.fn(),
       getUnreadLinksForUserAllGuilds: jest.fn(),
       createDMMapping: jest.fn(),
@@ -58,7 +57,7 @@ describe('CommandHandler - Rate Limiting', () => {
     jest.clearAllMocks();
 
     commandHandler = new CommandHandler(
-      mockBaserowService,
+      mockPostgresService,
       mockReactionHandler,
       configWithRateLimit,
       {}
@@ -168,11 +167,11 @@ describe('CommandHandler - Rate Limiting', () => {
         retryAfter: 0
       });
 
-      mockBaserowService.getUnreadLinksForUser.mockResolvedValue([]);
+      mockPostgresService.getUnreadLinksForUser.mockResolvedValue([]);
 
       await commandHandler.handleUnreadCommand(mockInteraction);
 
-      expect(mockBaserowService.getUnreadLinksForUser).toHaveBeenCalled();
+      expect(mockPostgresService.getUnreadLinksForUser).toHaveBeenCalled();
     });
 
     it('should stop execution when rate limited', async () => {
@@ -185,7 +184,7 @@ describe('CommandHandler - Rate Limiting', () => {
 
       await commandHandler.handleUnreadCommand(mockInteraction);
 
-      expect(mockBaserowService.getUnreadLinksForUser).not.toHaveBeenCalled();
+      expect(mockPostgresService.getUnreadLinksForUser).not.toHaveBeenCalled();
     });
   });
 

@@ -1,8 +1,8 @@
 const Logger = require('../utils/logger');
 
 class ReactionHandler {
-    constructor(baserowService, config) {
-        this.baserowService = baserowService;
+    constructor(postgresService, config) {
+        this.postgresService = postgresService;
         this.config = config;
     }
 
@@ -55,8 +55,8 @@ class ReactionHandler {
             
             Logger.info(`Channel reaction: ${reaction.emoji.name} by ${user.username} on message ${reaction.message.id}`);
 
-            // Mark link as read in Baserow if reactor is different from original poster
-            await this.baserowService.updateReadStatusFromReaction(reaction.message.id, reaction.message.guild.id, user.username, true);
+            // Mark link as read in PostgreSQL if reactor is different from original poster
+            await this.postgresService.updateReadStatusFromReaction(reaction.message.id, reaction.message.guild.id, user.username, true);
             
         } catch (error) {
             Logger.error('Error handling reaction:', error.message);
@@ -98,8 +98,8 @@ class ReactionHandler {
 
             Logger.info(`Reaction removed: ${reaction.emoji.name} by ${user.username} on message ${reaction.message.id}`);
 
-            // Mark link as unread in Baserow if reactor is different from original poster
-            await this.baserowService.updateReadStatusFromReaction(reaction.message.id, reaction.message.guild.id, user.username, false);
+            // Mark link as unread in PostgreSQL if reactor is different from original poster
+            await this.postgresService.updateReadStatusFromReaction(reaction.message.id, reaction.message.guild.id, user.username, false);
             
         } catch (error) {
             Logger.error('Error handling reaction removal:', error.message);
@@ -110,7 +110,7 @@ class ReactionHandler {
         Logger.debug(`DM reaction detected: ${reaction.emoji.name} on message ${reaction.message.id}`);
         
         // Find the mapping in the database
-        const mapping = await this.baserowService.findDMMapping(reaction.message.id, reaction.emoji.name);
+        const mapping = await this.postgresService.findDMMapping(reaction.message.id, reaction.emoji.name);
         
         if (mapping) {
             Logger.debug(`Found mapping: ${JSON.stringify(mapping)}`);
@@ -124,9 +124,9 @@ class ReactionHandler {
                         let successCount = 0;
                         for (const id of messageIds) {
                             // For bulk operations, we need to find the actual guild_id for each message
-                            const link = await this.baserowService.findLinkByMessageIdAllGuilds(id);
+                            const link = await this.postgresService.findLinkByMessageIdAllGuilds(id);
                             if (link) {
-                                const success = await this.baserowService.updateReadStatus(id, link.guild_id, true);
+                                const success = await this.postgresService.updateReadStatus(id, link.guild_id, true);
                                 if (success) successCount++;
                             } else {
                                 Logger.warning(`Could not find link for message ID: ${id}`);
@@ -140,7 +140,7 @@ class ReactionHandler {
             } else {
                 // Handle individual numbered reactions
                 Logger.debug(`Attempting to mark single link as read: ${mapping.original_message_id} in guild: ${mapping.guild_id}`);
-                const success = await this.baserowService.updateReadStatus(mapping.original_message_id, mapping.guild_id, true);
+                const success = await this.postgresService.updateReadStatus(mapping.original_message_id, mapping.guild_id, true);
                 if (success) {
                     Logger.success(`Marked link as read via DM reaction: ${mapping.original_message_id}`);
                 } else {
@@ -156,7 +156,7 @@ class ReactionHandler {
         Logger.debug(`DM reaction removal detected: ${reaction.emoji.name} on message ${reaction.message.id}`);
         
         // Find the mapping in the database
-        const mapping = await this.baserowService.findDMMapping(reaction.message.id, reaction.emoji.name);
+        const mapping = await this.postgresService.findDMMapping(reaction.message.id, reaction.emoji.name);
         
         if (mapping) {
             Logger.debug(`Found mapping for removal: ${JSON.stringify(mapping)}`);
@@ -170,9 +170,9 @@ class ReactionHandler {
                         let successCount = 0;
                         for (const id of messageIds) {
                             // For bulk operations, we need to find the actual guild_id for each message
-                            const link = await this.baserowService.findLinkByMessageIdAllGuilds(id);
+                            const link = await this.postgresService.findLinkByMessageIdAllGuilds(id);
                             if (link) {
-                                const success = await this.baserowService.updateReadStatus(id, link.guild_id, false);
+                                const success = await this.postgresService.updateReadStatus(id, link.guild_id, false);
                                 if (success) successCount++;
                             } else {
                                 Logger.warning(`Could not find link for message ID: ${id}`);
@@ -186,7 +186,7 @@ class ReactionHandler {
             } else {
                 // Handle individual numbered reactions
                 Logger.debug(`Attempting to mark single link as unread: ${mapping.original_message_id} in guild: ${mapping.guild_id}`);
-                const success = await this.baserowService.updateReadStatus(mapping.original_message_id, mapping.guild_id, false);
+                const success = await this.postgresService.updateReadStatus(mapping.original_message_id, mapping.guild_id, false);
                 if (success) {
                     Logger.success(`Marked link as unread via DM reaction removal: ${mapping.original_message_id}`);
                 } else {
@@ -225,8 +225,8 @@ class ReactionHandler {
         
         if (hasAdminPerms || isOriginalPoster) {
             try {
-                // Delete from Baserow first
-                const baserowDeleted = await this.baserowService.deleteLink(reaction.message.id, reaction.message.guild.id);
+                // Delete from PostgreSQL first
+                const baserowDeleted = await this.postgresService.deleteLink(reaction.message.id, reaction.message.guild.id);
                 
                 // Delete the Discord message
                 await reaction.message.delete();
@@ -235,9 +235,9 @@ class ReactionHandler {
                 Logger.success(`Deleted Discord message ${reaction.message.id} by ${deletionType} ${user.username}`);
                 
                 if (baserowDeleted) {
-                    Logger.success('Successfully deleted message and Baserow entry');
+                    Logger.success('Successfully deleted message and database entry');
                 } else {
-                    Logger.warning('Message deleted but no Baserow entry found');
+                    Logger.warning('Message deleted but no database entry found');
                 }
                 
             } catch (error) {

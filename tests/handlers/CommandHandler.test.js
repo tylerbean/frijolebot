@@ -2,22 +2,21 @@ const CommandHandler = require('../../handlers/commandHandler');
 const { mockConfig, mockDiscordInteraction, mockBaserowLinks, mockDiscordClient } = require('../fixtures/mockData');
 
 // Mock dependencies
-jest.mock('../../services/BaserowService');
 jest.mock('../../handlers/reactionHandler');
 jest.mock('../../utils/logger');
 
-const BaserowService = require('../../services/BaserowService');
+const PostgreSQLService = require('../../services/PostgreSQLService');
 const ReactionHandler = require('../../handlers/reactionHandler');
 const Logger = require('../../utils/logger');
 
 describe('CommandHandler', () => {
   let commandHandler;
-  let mockBaserowService;
+  let mockPostgresService;
   let mockReactionHandler;
   let mockInteraction;
 
   beforeEach(() => {
-    mockBaserowService = {
+    mockPostgresService = {
       getUnreadLinksForUser: jest.fn(),
       getUnreadLinksForUserAllGuilds: jest.fn(),
       createDMMapping: jest.fn(),
@@ -30,7 +29,7 @@ describe('CommandHandler', () => {
     };
 
     commandHandler = new CommandHandler(
-      mockBaserowService,
+      mockPostgresService,
       mockReactionHandler,
       mockConfig,
       mockDiscordClient
@@ -49,7 +48,7 @@ describe('CommandHandler', () => {
 
   describe('constructor', () => {
     it('should initialize with correct dependencies', () => {
-      expect(commandHandler.baserowService).toBe(mockBaserowService);
+      expect(commandHandler.postgresService).toBe(mockPostgresService);
       expect(commandHandler.reactionHandler).toBe(mockReactionHandler);
       expect(commandHandler.config).toBe(mockConfig);
       expect(commandHandler.discordClient).toBe(mockDiscordClient);
@@ -58,7 +57,7 @@ describe('CommandHandler', () => {
 
   describe('handleUnreadCommand', () => {
     it('should handle unread command in server channel successfully', async () => {
-      mockBaserowService.getUnreadLinksForUser.mockResolvedValue(mockBaserowLinks);
+      mockPostgresService.getUnreadLinksForUser.mockResolvedValue(mockBaserowLinks);
       mockInteraction.guildId = '123456789';
       mockInteraction.user.createDM = jest.fn().mockResolvedValue({
         send: jest.fn().mockResolvedValue({
@@ -70,20 +69,20 @@ describe('CommandHandler', () => {
       await commandHandler.handleUnreadCommand(mockInteraction);
 
       expect(mockInteraction.deferReply).toHaveBeenCalledWith({ flags: 64 }); // MessageFlags.Ephemeral
-      expect(mockBaserowService.getUnreadLinksForUser).toHaveBeenCalledWith(
+      expect(mockPostgresService.getUnreadLinksForUser).toHaveBeenCalledWith(
         'testuser',
         '123456789',
         '987654321',
         mockDiscordClient
       );
       expect(mockInteraction.editReply).toHaveBeenCalledWith({
-        content: expect.stringContaining('I\'ve sent you a DM'),
+        content: expect.stringContaining("I've sent you a DM"),
         flags: 64
       });
     });
 
     it('should handle unread command in DM successfully', async () => {
-      mockBaserowService.getUnreadLinksForUserAllGuilds.mockResolvedValue(mockBaserowLinks);
+      mockPostgresService.getUnreadLinksForUserAllGuilds.mockResolvedValue(mockBaserowLinks);
       mockInteraction.guildId = null; // DM usage
       mockInteraction.user.createDM = jest.fn().mockResolvedValue({
         send: jest.fn().mockResolvedValue({
@@ -94,19 +93,19 @@ describe('CommandHandler', () => {
 
       await commandHandler.handleUnreadCommand(mockInteraction);
 
-      expect(mockBaserowService.getUnreadLinksForUserAllGuilds).toHaveBeenCalledWith(
+      expect(mockPostgresService.getUnreadLinksForUserAllGuilds).toHaveBeenCalledWith(
         'testuser',
         '987654321',
         mockDiscordClient
       );
       expect(mockInteraction.editReply).toHaveBeenCalledWith({
-        content: expect.stringContaining('I\'ve sent you a DM with your unread links from all servers'),
+        content: expect.stringContaining("I've sent you a DM with your unread links from all servers"),
         flags: 64
       });
     });
 
     it('should handle no unread links in server channel', async () => {
-      mockBaserowService.getUnreadLinksForUser.mockResolvedValue([]);
+      mockPostgresService.getUnreadLinksForUser.mockResolvedValue([]);
       mockInteraction.guildId = '123456789';
 
       await commandHandler.handleUnreadCommand(mockInteraction);
@@ -118,7 +117,7 @@ describe('CommandHandler', () => {
     });
 
     it('should handle no unread links in DM', async () => {
-      mockBaserowService.getUnreadLinksForUserAllGuilds.mockResolvedValue([]);
+      mockPostgresService.getUnreadLinksForUserAllGuilds.mockResolvedValue([]);
       mockInteraction.guildId = null;
 
       await commandHandler.handleUnreadCommand(mockInteraction);
@@ -130,7 +129,7 @@ describe('CommandHandler', () => {
     });
 
     it('should handle DM creation errors', async () => {
-      mockBaserowService.getUnreadLinksForUser.mockResolvedValue(mockBaserowLinks);
+      mockPostgresService.getUnreadLinksForUser.mockResolvedValue(mockBaserowLinks);
       mockInteraction.guildId = '123456789';
       mockInteraction.user.createDM = jest.fn().mockRejectedValue(new Error('DM Error'));
 
@@ -144,7 +143,7 @@ describe('CommandHandler', () => {
 
     it('should create DM mappings for individual reactions', async () => {
       const singleLink = [mockBaserowLinks[0]];
-      mockBaserowService.getUnreadLinksForUser.mockResolvedValue(singleLink);
+      mockPostgresService.getUnreadLinksForUser.mockResolvedValue(singleLink);
       mockInteraction.guildId = '123456789';
       mockInteraction.user.createDM = jest.fn().mockResolvedValue({
         send: jest.fn().mockResolvedValue({
@@ -155,7 +154,7 @@ describe('CommandHandler', () => {
 
       await commandHandler.handleUnreadCommand(mockInteraction);
 
-      expect(mockBaserowService.createDMMapping).toHaveBeenCalledWith(
+      expect(mockPostgresService.createDMMapping).toHaveBeenCalledWith(
         'dm-message-id',
         '1️⃣',
         singleLink[0].message_id,
@@ -165,7 +164,7 @@ describe('CommandHandler', () => {
     });
 
     it('should create bulk DM mapping for checkmark reaction', async () => {
-      mockBaserowService.getUnreadLinksForUser.mockResolvedValue(mockBaserowLinks);
+      mockPostgresService.getUnreadLinksForUser.mockResolvedValue(mockBaserowLinks);
       mockInteraction.guildId = '123456789';
       mockInteraction.user.createDM = jest.fn().mockResolvedValue({
         send: jest.fn().mockResolvedValue({
@@ -176,7 +175,7 @@ describe('CommandHandler', () => {
 
       await commandHandler.handleUnreadCommand(mockInteraction);
 
-      expect(mockBaserowService.createBulkDMMapping).toHaveBeenCalledWith(
+      expect(mockPostgresService.createBulkDMMapping).toHaveBeenCalledWith(
         'dm-message-id',
         mockBaserowLinks.map(link => link.message_id),
         '123456789',
@@ -191,7 +190,7 @@ describe('CommandHandler', () => {
         message_id: `message-${i + 1}`
       }));
       
-      mockBaserowService.getUnreadLinksForUser.mockResolvedValue(manyLinks);
+      mockPostgresService.getUnreadLinksForUser.mockResolvedValue(manyLinks);
       mockInteraction.guildId = '123456789';
       mockInteraction.user.createDM = jest.fn().mockResolvedValue({
         send: jest.fn().mockResolvedValue({
@@ -203,10 +202,10 @@ describe('CommandHandler', () => {
       await commandHandler.handleUnreadCommand(mockInteraction);
 
       // Should create mappings for all 15 links (10 numbered + 5 letter reactions)
-      expect(mockBaserowService.createDMMapping).toHaveBeenCalledTimes(15);
+      expect(mockPostgresService.createDMMapping).toHaveBeenCalledTimes(15);
       
       // Should create mappings for links 11-15 (letter reactions)
-      expect(mockBaserowService.createDMMapping).toHaveBeenCalledWith(
+      expect(mockPostgresService.createDMMapping).toHaveBeenCalledWith(
         'dm-message-id',
         '🇦',
         'message-11',
@@ -222,7 +221,7 @@ describe('CommandHandler', () => {
         message_id: `message-${i + 1}`
       }));
       
-      mockBaserowService.getUnreadLinksForUser.mockResolvedValue(manyLinks);
+      mockPostgresService.getUnreadLinksForUser.mockResolvedValue(manyLinks);
       mockInteraction.guildId = '123456789';
       mockInteraction.user.createDM = jest.fn().mockResolvedValue({
         send: jest.fn().mockResolvedValue({
@@ -234,11 +233,11 @@ describe('CommandHandler', () => {
       await commandHandler.handleUnreadCommand(mockInteraction);
 
       // Should only process first 25 links
-      expect(mockBaserowService.createDMMapping).toHaveBeenCalledTimes(25);
+      expect(mockPostgresService.createDMMapping).toHaveBeenCalledTimes(25);
     });
 
     it('should handle errors gracefully', async () => {
-      mockBaserowService.getUnreadLinksForUser.mockRejectedValue(new Error('Service Error'));
+      mockPostgresService.getUnreadLinksForUser.mockRejectedValue(new Error('Service Error'));
       mockInteraction.guildId = '123456789';
 
       await commandHandler.handleUnreadCommand(mockInteraction);

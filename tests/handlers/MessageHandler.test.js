@@ -2,40 +2,39 @@ const MessageHandler = require('../../handlers/messageHandler');
 const { mockDiscordMessage } = require('../fixtures/mockData');
 
 // Mock dependencies
-jest.mock('../../services/BaserowService');
 jest.mock('../../utils/logger');
 
-const BaserowService = require('../../services/BaserowService');
+const PostgreSQLService = require('../../services/PostgreSQLService');
 const Logger = require('../../utils/logger');
 
 describe('MessageHandler', () => {
   let messageHandler;
-  let mockBaserowService;
+  let mockPostgresService;
   let mockMessage;
 
   beforeEach(() => {
-    mockBaserowService = {
+    mockPostgresService = {
       storeLink: jest.fn()
     };
 
-    messageHandler = new MessageHandler(mockBaserowService);
+    messageHandler = new MessageHandler(mockPostgresService);
     mockMessage = { ...mockDiscordMessage };
     jest.clearAllMocks();
   });
 
   describe('constructor', () => {
-    it('should initialize with BaserowService', () => {
-      expect(messageHandler.baserowService).toBe(mockBaserowService);
+    it('should initialize with PostgreSQLService', () => {
+      expect(messageHandler.postgresService).toBe(mockPostgresService);
     });
   });
 
   describe('handleMessage', () => {
     it('should handle message with URL successfully', async () => {
-      mockBaserowService.storeLink.mockResolvedValue({ success: true });
+      mockPostgresService.storeLink.mockResolvedValue({ success: true });
 
       await messageHandler.handleMessage(mockMessage);
 
-      expect(mockBaserowService.storeLink).toHaveBeenCalledWith(
+      expect(mockPostgresService.storeLink).toHaveBeenCalledWith(
         mockMessage,
         'https://example.com',
         '123456789'
@@ -44,17 +43,17 @@ describe('MessageHandler', () => {
 
     it('should handle message with multiple URLs', async () => {
       mockMessage.content = 'Check these links: https://example.com and https://github.com';
-      mockBaserowService.storeLink.mockResolvedValue({ success: true });
+      mockPostgresService.storeLink.mockResolvedValue({ success: true });
 
       await messageHandler.handleMessage(mockMessage);
 
-      expect(mockBaserowService.storeLink).toHaveBeenCalledTimes(2);
-      expect(mockBaserowService.storeLink).toHaveBeenCalledWith(
+      expect(mockPostgresService.storeLink).toHaveBeenCalledTimes(2);
+      expect(mockPostgresService.storeLink).toHaveBeenCalledWith(
         mockMessage,
         'https://example.com',
         '123456789'
       );
-      expect(mockBaserowService.storeLink).toHaveBeenCalledWith(
+      expect(mockPostgresService.storeLink).toHaveBeenCalledWith(
         mockMessage,
         'https://github.com',
         '123456789'
@@ -66,7 +65,7 @@ describe('MessageHandler', () => {
 
       await messageHandler.handleMessage(mockMessage);
 
-      expect(mockBaserowService.storeLink).not.toHaveBeenCalled();
+      expect(mockPostgresService.storeLink).not.toHaveBeenCalled();
     });
 
     it('should handle message with invalid URLs', async () => {
@@ -74,20 +73,20 @@ describe('MessageHandler', () => {
 
       await messageHandler.handleMessage(mockMessage);
 
-      expect(mockBaserowService.storeLink).not.toHaveBeenCalled();
+      expect(mockPostgresService.storeLink).not.toHaveBeenCalled();
     });
 
     it('should handle various URL formats', async () => {
       mockMessage.content = 'URLs: https://example.com http://test.com https://sub.domain.com/path?query=value#fragment';
-      mockBaserowService.storeLink.mockResolvedValue({ success: true });
+      mockPostgresService.storeLink.mockResolvedValue({ success: true });
 
       await messageHandler.handleMessage(mockMessage);
 
-      expect(mockBaserowService.storeLink).toHaveBeenCalledTimes(3);
+      expect(mockPostgresService.storeLink).toHaveBeenCalledTimes(3);
     });
 
     it('should handle BaserowService errors gracefully', async () => {
-      mockBaserowService.storeLink.mockRejectedValue(new Error('Storage error'));
+      mockPostgresService.storeLink.mockRejectedValue(new Error('Storage error'));
 
       await messageHandler.handleMessage(mockMessage);
 
@@ -104,7 +103,7 @@ describe('MessageHandler', () => {
 
       // When guild is null, accessing message.guild.id will throw an error
       // so storeLink should not be called
-      expect(mockBaserowService.storeLink).not.toHaveBeenCalled();
+      expect(mockPostgresService.storeLink).not.toHaveBeenCalled();
       expect(Logger.error).toHaveBeenCalledWith(
         'Error processing message:',
         expect.any(Error)
