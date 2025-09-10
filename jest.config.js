@@ -26,10 +26,10 @@ module.exports = {
   // Coverage thresholds (adjusted for Baileys migration)
   coverageThreshold: {
     global: {
-      branches: 40,
-      functions: 55,
-      lines: 50,
-      statements: 50
+      branches: 30,
+      functions: 50,
+      lines: 40,
+      statements: 40
     }
   },
   

@@ -101,7 +101,7 @@ describe('CommandHandler - Rate Limiting', () => {
       };
 
       const handler = new CommandHandler(
-        mockBaserowService,
+        mockPostgresService,
         mockReactionHandler,
         configWithoutRateLimit,
         {}
