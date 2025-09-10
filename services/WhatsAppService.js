@@ -215,6 +215,15 @@ class WhatsAppService {
         this.sessionManager.cancelSessionRestoreTimeout();
         await this.sessionManager.saveSession();
         await this.sessionManager.updateSessionStatus('active');
+        // Notify admin once on successful authentication (new or restored)
+        try {
+          await this.sendAdminNotification(
+            'Authenticated successfully. WhatsApp is connected and ready.',
+            'info'
+          );
+        } catch (notifyError) {
+          Logger.error('Failed to send success authentication notification:', notifyError);
+        }
         await this.startMessageMonitoring();
       } else if (connection === 'close') {
         Logger.warning('WhatsApp client disconnected');
