@@ -4,6 +4,7 @@ const Logger = require('../utils/logger');
 class PostgreSQLService {
     constructor(connectionConfig) {
         this.pool = new Pool(connectionConfig);
+        this._lastConnectionHealthy = null; // track last health result for change-only logging
         
         // Test connection on initialization
         this.pool.on('connect', () => {
@@ -218,17 +219,24 @@ class PostgreSQLService {
                 };
             }
             
-            Logger.success('PostgreSQL connection test successful');
-            return {
+            const resultObj = {
                 success: true,
                 responseTime,
                 currentTime: result.rows[0].current_time,
                 version: result.rows[0].version,
                 tables
             };
+            // Log only on change from unhealthy -> healthy (or first observation)
+            if (this._lastConnectionHealthy !== true) {
+                Logger.success('PostgreSQL connection healthy');
+            }
+            this._lastConnectionHealthy = true;
+            return resultObj;
         } catch (error) {
             const responseTime = Date.now() - startTime;
+            // Always report failures
             Logger.error('PostgreSQL connection test failed:', error.message);
+            this._lastConnectionHealthy = false;
             return {
                 success: false,
                 responseTime,
