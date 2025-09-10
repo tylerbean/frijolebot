@@ -26,6 +26,8 @@ class WhatsAppService {
     this.qrRequestedOnDemand = false; // Track if QR was requested via /whatsapp_auth command
     this.startupNotificationSent = false; // Track if startup notification was sent
     this.isShuttingDown = false; // Track if bot is shutting down
+    this.qrSuppressAlertsUntil = 0; // Timestamp until which auth-failed alerts are suppressed
+    this.lastIsNewLogin = null; // Cache of isNewLogin from connection updates
     
     Logger.info('WhatsAppService initialized');
   }
@@ -186,6 +188,10 @@ class WhatsAppService {
           lastDisconnectError: lastDisconnect?.error?.message,
           fullUpdate: JSON.stringify(update, null, 2)
         });
+        // Cache isNewLogin for later use when connection opens
+        if (typeof isNewLogin === 'boolean') {
+          this.lastIsNewLogin = isNewLogin;
+        }
       
       if (qr) {
         Logger.info('QR code generated for WhatsApp authentication');
@@ -217,10 +223,11 @@ class WhatsAppService {
         await this.sessionManager.updateSessionStatus('active');
         // Notify admin once on successful authentication (new or restored)
         try {
-          const successMsg = isNewLogin === true
+          const successMsg = (this.lastIsNewLogin === true)
             ? 'Authenticated successfully (new session). WhatsApp is connected and ready.'
             : 'Authenticated successfully (restored session). WhatsApp is connected and ready.';
           await this.sendAdminNotification(successMsg, 'info');
+          this.lastIsNewLogin = null; // reset after reporting
         } catch (notifyError) {
           Logger.error('Failed to send success authentication notification:', notifyError);
         }
@@ -298,10 +305,12 @@ class WhatsAppService {
               hasAdminChannel: !!this.config.discord.adminChannelId,
               qrRequestedOnDemand: this.qrRequestedOnDemand,
               isShuttingDown: this.isShuttingDown,
-              willSendAlert: !!(this.discordClient && this.config.discord.adminChannelId && !this.qrRequestedOnDemand && !this.isShuttingDown)
+              suppressUntil: this.qrSuppressAlertsUntil,
+              now: Date.now(),
+              willSendAlert: !!(this.discordClient && this.config.discord.adminChannelId && !this.qrRequestedOnDemand && !this.isShuttingDown && Date.now() > this.qrSuppressAlertsUntil)
             });
             
-            if (this.discordClient && this.config.discord.adminChannelId && !this.qrRequestedOnDemand && !this.isShuttingDown) {
+            if (this.discordClient && this.config.discord.adminChannelId && !this.qrRequestedOnDemand && !this.isShuttingDown && Date.now() > this.qrSuppressAlertsUntil) {
               Logger.error('🚨 [MAIN SERVICE] SENDING Discord authentication failed message!');
               try {
                 const channel = this.discordClient.channels.cache.get(this.config.discord.adminChannelId);
@@ -314,6 +323,8 @@ class WhatsAppService {
               }
             } else if (this.qrRequestedOnDemand) {
               Logger.info('✅ [MAIN SERVICE] Skipping authentication failed message - QR was requested on-demand');
+            } else if (Date.now() <= this.qrSuppressAlertsUntil) {
+              Logger.info('✅ [MAIN SERVICE] Skipping authentication failed message - within QR cooldown window');
             } else if (this.isShuttingDown) {
               Logger.info('✅ [MAIN SERVICE] Skipping authentication failed message - shutting down');
             } else {
@@ -578,6 +589,8 @@ class WhatsAppService {
       // Set flag to indicate QR was requested on-demand
       this.qrRequestedOnDemand = true;
       Logger.error('🔥 [FLAG SET] Main service qrRequestedOnDemand = true');
+      // Suppress auth-failed alerts for a short window to avoid noise during intentional logout
+      this.qrSuppressAlertsUntil = Date.now() + 25_000; // 25s window
       
       // IMPORTANT: Set the flag in session manager too, before logout
       if (this.sessionManager) {
