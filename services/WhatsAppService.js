@@ -527,6 +527,19 @@ class WhatsAppService {
 
       Logger.info('Manual QR code requested by admin');
       
+      // Check if we have a stored QR code
+      if (this.sessionManager.currentQRCode) {
+        Logger.info('Using stored QR code for on-demand request');
+        await this.sessionManager.sendQRCodeToDiscord(this.sessionManager.currentQRCode);
+        return {
+          success: true,
+          message: 'QR code sent to admin channel.'
+        };
+      }
+      
+      // No stored QR code, need to generate a new one
+      Logger.info('No stored QR code found, generating new one...');
+      
       // Clear any existing session to force QR generation
       await this.sessionManager.clearLocalSession();
       
@@ -558,6 +571,7 @@ class WhatsAppSessionManager {
     this.hasExistingSession = false;
     this.sessionRestoreTimeout = null;
     this.qrCodeSent = false;
+    this.currentQRCode = null; // Store QR code for on-demand sending
   }
 
   async getActiveSession() {
@@ -639,24 +653,37 @@ class WhatsAppSessionManager {
       Logger.debug('QR code first 100 chars:', qr ? qr.substring(0, 100) : 'null');
       Logger.debug('QR code last 100 chars:', qr ? qr.substring(qr.length - 100) : 'null');
       
+      // Store the QR code for on-demand sending, but don't send it automatically
+      this.currentQRCode = qr;
+      Logger.info('QR code stored for on-demand sending. Use `/whatsapp_auth` command to request it.');
+      
       // If we have an existing session, wait a bit to see if it restores successfully
       if (this.hasExistingSession && !this.qrCodeSent) {
         Logger.info('QR code generated but waiting to see if existing session restores...');
         
-        // Set a timeout to send QR code if session doesn't restore within 10 seconds
+        // Set a timeout to notify admin if session doesn't restore within 10 seconds
         this.sessionRestoreTimeout = setTimeout(async () => {
           if (!this.qrCodeSent) {
-            Logger.warning('Session restoration timeout - sending QR code to Discord');
-            await this.sendQRCodeToDiscord(qr);
+            Logger.warning('Session restoration timeout - notifying admin to use /whatsapp_auth command');
+            // Send notification instead of QR code
+            if (this.discordClient && this.config.discord.adminChannelId) {
+              await this.sendAdminNotification(
+                'Session restoration failed. Use `/whatsapp_auth` command to generate a QR code for authentication.',
+                'warning'
+              );
+            }
           }
         }, 10000); // 10 second timeout
         
         return;
       }
       
-      // Send QR code to Discord if we don't have an existing session and haven't sent one yet
+      // Don't automatically send QR code - just notify admin
       if (!this.hasExistingSession && !this.qrCodeSent && this.discordClient && this.config.discord.adminChannelId) {
-        await this.sendQRCodeToDiscord(qr);
+        await this.sendAdminNotification(
+          'QR code generated. Use `/whatsapp_auth` command to request it for authentication.',
+          'info'
+        );
       } else if (this.qrCodeSent) {
         Logger.info('QR code already sent to Discord, skipping duplicate');
       } else {
