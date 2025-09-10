@@ -31,7 +31,7 @@ jobs:
         echo "Checking JavaScript syntax..."
         node -c discord-link-bot.js
         node -c config/index.js
-        node -c services/BaserowService.js
+        node -c services/PostgreSQLService.js
         node -c services/HealthCheckService.js
         node -c services/WhatsAppService.js
         node -c handlers/commandHandler.js
@@ -55,15 +55,13 @@ jobs:
           -e DISCORD_BOT_TOKEN=test-token \
           -e DISCORD_GUILD_ID=123456789 \
           -e DISCORD_CHANNEL_TEST1=987654321 \
-          -e BASEROW_API_TOKEN=test-token \
-          -e BASEROW_API_URL=https://test.baserow.io \
-          -e BASEROW_LINKS_TABLE_ID=1 \
-          -e BASEROW_DM_MAPPING_TABLE_ID=2 \
+          -e POSTGRES_HOST=localhost \
+          -e POSTGRES_PORT=5432 \
+          -e POSTGRES_DATABASE=test_db \
+          -e POSTGRES_USER=test_user \
+          -e POSTGRES_PASSWORD=test_password \
           -e WHATSAPP_ENABLED=false \
           -e WHATSAPP_SESSION_ENCRYPTION_KEY=test-encryption-key-32-characters \
-          -e BASEROW_WHATSAPP_SESSIONS_TABLE_ID=3 \
-          -e BASEROW_WHATSAPP_CHATS_TABLE_ID=4 \
-          -e BASEROW_WHATSAPP_MESSAGES_TABLE_ID=5 \
           -e NODE_ENV=test \
           -e HEALTH_CHECK_PORT=3000 \
           -e TIMEZONE=UTC \

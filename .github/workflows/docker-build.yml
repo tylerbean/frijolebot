@@ -85,10 +85,11 @@ jobs:
           -e DISCORD_BOT_TOKEN=test \
           -e DISCORD_GUILD_ID=test \
           -e DISCORD_CHANNEL_TEST1=test \
-          -e BASEROW_API_TOKEN=test \
-          -e BASEROW_API_URL=test \
-          -e BASEROW_LINKS_TABLE_ID=test \
-          -e BASEROW_DM_MAPPING_TABLE_ID=test \
+          -e POSTGRES_HOST=localhost \
+          -e POSTGRES_PORT=5432 \
+          -e POSTGRES_DATABASE=test_db \
+          -e POSTGRES_USER=test_user \
+          -e POSTGRES_PASSWORD=test_password \
           -e NODE_ENV=test \
           -p 3000:3000 \
           ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:main
@@ -145,7 +146,7 @@ jobs:
         # Run basic syntax check
         node -c discord-link-bot.js
         node -c config/index.js
-        node -c services/BaserowService.js
+        node -c services/PostgreSQLService.js
         node -c services/HealthCheckService.js
         node -c services/WhatsAppService.js
         node -c handlers/commandHandler.js
@@ -184,7 +185,8 @@ jobs:
           
           ### Features
           - Discord bot with link monitoring
-          - Baserow integration for data storage
+          - PostgreSQL database integration
+          - WhatsApp message bridging
           - Rate limiting for slash commands
           - Health check endpoints
           - Multi-server support
