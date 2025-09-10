@@ -201,13 +201,13 @@ class HealthCheckService {
                     links: {
                         connected: response.tables.links.success,
                         response_time: response.tables.links.responseTime,
-                        database: this.postgresService.pool.options.database,
+                        database: (this.postgresService.pool && this.postgresService.pool.options && this.postgresService.pool.options.database) || this.config.postgres?.database,
                         data_count: response.tables.links.dataCount || 0
                     },
                     dmMapping: {
                         connected: response.tables.dmMapping.success,
                         response_time: response.tables.dmMapping.responseTime,
-                        database: this.postgresService.pool.options.database,
+                        database: (this.postgresService.pool && this.postgresService.pool.options && this.postgresService.pool.options.database) || this.config.postgres?.database,
                         data_count: response.tables.dmMapping.dataCount || 0
                     }
                 }
@@ -220,11 +220,11 @@ class HealthCheckService {
                 tables: {
                     links: {
                         connected: false,
-                        database: this.postgresService.pool.options.database
+                        database: (this.postgresService.pool && this.postgresService.pool.options && this.postgresService.pool.options.database) || this.config.postgres?.database
                     },
                     dmMapping: {
                         connected: false,
-                        database: this.postgresService.pool.options.database
+                        database: (this.postgresService.pool && this.postgresService.pool.options && this.postgresService.pool.options.database) || this.config.postgres?.database
                     }
                 }
             };

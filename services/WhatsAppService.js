@@ -356,8 +356,11 @@ class WhatsAppService {
     try {
       Logger.info('Starting WhatsApp message monitoring...');
       
-      // Get active chats from Baserow
-      const activeChats = await this.postgresService.getActiveChats();
+      // Get active chats from PostgreSQL if available
+      let activeChats = [];
+      if (this.postgresService && typeof this.postgresService.getActiveChats === 'function') {
+        activeChats = await this.postgresService.getActiveChats();
+      }
       Logger.info(`Monitoring ${activeChats.length} active chats`);
       
       // Set up periodic health checks
@@ -401,8 +404,12 @@ class WhatsAppService {
       }
       
       if (this.sock) {
-        // Just end the connection, don't logout (which removes the linked device)
-        this.sock.end();
+        // Prefer ending the connection gracefully; fallback to logout if end is unavailable
+        if (typeof this.sock.end === 'function') {
+          this.sock.end();
+        } else if (typeof this.sock.logout === 'function') {
+          await this.sock.logout();
+        }
       }
       this.isConnected = false;
       this.isInitialized = false;

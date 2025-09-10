@@ -25,12 +25,11 @@ describe('Config', () => {
       process.env.DISCORD_GUILD_ID = '123456789';
       process.env.DISCORD_CHANNEL_TEST1 = '111111111';
       process.env.DISCORD_CHANNEL_TEST2 = '222222222';
-      process.env.BASEROW_API_TOKEN = 'test-baserow-token';
-      process.env.BASEROW_API_URL = 'https://test-baserow.com/api/database/table/';
-      process.env.BASEROW_LINKS_TABLE_ID = '123';
-      process.env.BASEROW_DM_MAPPING_TABLE_ID = '43';
-      process.env.BASEROW_LINKS_TABLE_ID = '123';
-      process.env.BASEROW_DM_MAPPING_TABLE_ID = '43';
+      process.env.POSTGRES_HOST = 'localhost';
+      process.env.POSTGRES_PORT = '5432';
+      process.env.POSTGRES_USER = 'testuser';
+      process.env.POSTGRES_PASSWORD = 'testpass';
+      process.env.POSTGRES_DATABASE = 'testdb';
       process.env.HEALTH_CHECK_PORT = '3001';
       process.env.NODE_ENV = 'test';
     });
@@ -45,14 +44,13 @@ describe('Config', () => {
           channelsToMonitor: ['111111111', '222222222'],
           adminChannelId: undefined
         },
-        baserow: {
-          apiToken: 'test-baserow-token',
-          apiUrl: 'https://test-baserow.com/api/database/table/',
-          linksTableId: '123',
-          dmMappingTableId: '43',
-          whatsappSessionsTableId: '45',
-          whatsappChatsTableId: '44',
-          whatsappMessagesTableId: '46'
+        postgres: {
+          host: 'localhost',
+          port: 5432,
+          user: 'testuser',
+          password: 'testpass',
+          database: 'testdb',
+          ssl: false
         },
         app: {
           nodeEnv: 'test'
@@ -116,10 +114,11 @@ describe('Config', () => {
     it('should throw error for missing DISCORD_BOT_TOKEN', () => {
       process.env.DISCORD_GUILD_ID = '123456789';
       process.env.DISCORD_CHANNEL_TEST1 = '111111111';
-      process.env.BASEROW_API_TOKEN = 'test-baserow-token';
-      process.env.BASEROW_API_URL = 'https://test-baserow.com/api/database/table/';
-      process.env.BASEROW_LINKS_TABLE_ID = '123';
-      process.env.BASEROW_DM_MAPPING_TABLE_ID = '43';
+      process.env.POSTGRES_HOST = 'localhost';
+      process.env.POSTGRES_PORT = '5432';
+      process.env.POSTGRES_USER = 'testuser';
+      process.env.POSTGRES_PASSWORD = 'testpass';
+      process.env.POSTGRES_DATABASE = 'testdb';
       delete process.env.DISCORD_BOT_TOKEN;
 
       expect(() => {
@@ -130,10 +129,11 @@ describe('Config', () => {
     it('should throw error for missing DISCORD_GUILD_ID', () => {
       process.env.DISCORD_BOT_TOKEN = 'test-discord-token';
       process.env.DISCORD_CHANNEL_TEST1 = '111111111';
-      process.env.BASEROW_API_TOKEN = 'test-baserow-token';
-      process.env.BASEROW_API_URL = 'https://test-baserow.com/api/database/table/';
-      process.env.BASEROW_LINKS_TABLE_ID = '123';
-      process.env.BASEROW_DM_MAPPING_TABLE_ID = '43';
+      process.env.POSTGRES_HOST = 'localhost';
+      process.env.POSTGRES_PORT = '5432';
+      process.env.POSTGRES_USER = 'testuser';
+      process.env.POSTGRES_PASSWORD = 'testpass';
+      process.env.POSTGRES_DATABASE = 'testdb';
       delete process.env.DISCORD_GUILD_ID;
 
       expect(() => {
@@ -144,38 +144,30 @@ describe('Config', () => {
     it('should throw error for missing Discord channels', () => {
       process.env.DISCORD_BOT_TOKEN = 'test-discord-token';
       process.env.DISCORD_GUILD_ID = '123456789';
-      process.env.BASEROW_API_TOKEN = 'test-baserow-token';
-      process.env.BASEROW_API_URL = 'https://test-baserow.com/api/database/table/';
-      process.env.BASEROW_LINKS_TABLE_ID = '123';
-      process.env.BASEROW_DM_MAPPING_TABLE_ID = '43';
+      process.env.POSTGRES_HOST = 'localhost';
+      process.env.POSTGRES_PORT = '5432';
+      process.env.POSTGRES_USER = 'testuser';
+      process.env.POSTGRES_PASSWORD = 'testpass';
+      process.env.POSTGRES_DATABASE = 'testdb';
 
       expect(() => {
         require('../../config');
       }).toThrow('No Discord channels configured for monitoring');
     });
 
-    it('should throw error for missing BASEROW_API_TOKEN', () => {
+    it('should throw error for missing POSTGRES_DATABASE', () => {
       process.env.DISCORD_BOT_TOKEN = 'test-discord-token';
       process.env.DISCORD_GUILD_ID = '123456789';
       process.env.DISCORD_CHANNEL_TEST1 = '111111111';
-      process.env.BASEROW_API_URL = 'https://test-baserow.com/api/database/table/';
-      delete process.env.BASEROW_API_TOKEN;
+      process.env.POSTGRES_HOST = 'localhost';
+      process.env.POSTGRES_PORT = '5432';
+      process.env.POSTGRES_USER = 'testuser';
+      process.env.POSTGRES_PASSWORD = 'testpass';
+      delete process.env.POSTGRES_DATABASE;
 
       expect(() => {
         require('../../config');
-      }).toThrow('Missing required environment variables: BASEROW_API_TOKEN');
-    });
-
-    it('should throw error for missing BASEROW_API_URL', () => {
-      process.env.DISCORD_BOT_TOKEN = 'test-discord-token';
-      process.env.DISCORD_GUILD_ID = '123456789';
-      process.env.DISCORD_CHANNEL_TEST1 = '111111111';
-      process.env.BASEROW_API_TOKEN = 'test-baserow-token';
-      delete process.env.BASEROW_API_URL;
-
-      expect(() => {
-        require('../../config');
-      }).toThrow('Missing required environment variables: BASEROW_API_URL');
+      }).toThrow('Missing required environment variables: POSTGRES_DATABASE');
     });
   });
 
@@ -184,10 +176,11 @@ describe('Config', () => {
       process.env.DISCORD_BOT_TOKEN = 'test-discord-token';
       process.env.DISCORD_GUILD_ID = '123456789';
       process.env.DISCORD_CHANNEL_EMPTY = '';
-      process.env.BASEROW_API_TOKEN = 'test-baserow-token';
-      process.env.BASEROW_API_URL = 'https://test-baserow.com/api/database/table/';
-      process.env.BASEROW_LINKS_TABLE_ID = '123';
-      process.env.BASEROW_DM_MAPPING_TABLE_ID = '43';
+      process.env.POSTGRES_HOST = 'localhost';
+      process.env.POSTGRES_PORT = '5432';
+      process.env.POSTGRES_USER = 'testuser';
+      process.env.POSTGRES_PASSWORD = 'testpass';
+      process.env.POSTGRES_DATABASE = 'testdb';
 
       expect(() => {
         require('../../config');
@@ -198,10 +191,11 @@ describe('Config', () => {
       process.env.DISCORD_BOT_TOKEN = 'test-discord-token';
       process.env.DISCORD_GUILD_ID = '123456789';
       process.env.DISCORD_CHANNEL_WHITESPACE = '   ';
-      process.env.BASEROW_API_TOKEN = 'test-baserow-token';
-      process.env.BASEROW_API_URL = 'https://test-baserow.com/api/database/table/';
-      process.env.BASEROW_LINKS_TABLE_ID = '123';
-      process.env.BASEROW_DM_MAPPING_TABLE_ID = '43';
+      process.env.POSTGRES_HOST = 'localhost';
+      process.env.POSTGRES_PORT = '5432';
+      process.env.POSTGRES_USER = 'testuser';
+      process.env.POSTGRES_PASSWORD = 'testpass';
+      process.env.POSTGRES_DATABASE = 'testdb';
 
       expect(() => {
         require('../../config');
@@ -216,10 +210,11 @@ describe('Config', () => {
       process.env.DISCORD_CHANNEL_VALID1 = '111111111';
       process.env.DISCORD_CHANNEL_EMPTY = '';
       process.env.DISCORD_CHANNEL_VALID2 = '222222222';
-      process.env.BASEROW_API_TOKEN = 'test-baserow-token';
-      process.env.BASEROW_API_URL = 'https://test-baserow.com/api/database/table/';
-      process.env.BASEROW_LINKS_TABLE_ID = '123';
-      process.env.BASEROW_DM_MAPPING_TABLE_ID = '43';
+      process.env.POSTGRES_HOST = 'localhost';
+      process.env.POSTGRES_PORT = '5432';
+      process.env.POSTGRES_USER = 'testuser';
+      process.env.POSTGRES_PASSWORD = 'testpass';
+      process.env.POSTGRES_DATABASE = 'testdb';
 
       const config = require('../../config');
 
@@ -232,10 +227,11 @@ describe('Config', () => {
       process.env.DISCORD_CHANNEL_VALID1 = '111111111';
       process.env.DISCORD_CHANNEL_WHITESPACE = '   ';
       process.env.DISCORD_CHANNEL_VALID2 = '222222222';
-      process.env.BASEROW_API_TOKEN = 'test-baserow-token';
-      process.env.BASEROW_API_URL = 'https://test-baserow.com/api/database/table/';
-      process.env.BASEROW_LINKS_TABLE_ID = '123';
-      process.env.BASEROW_DM_MAPPING_TABLE_ID = '43';
+      process.env.POSTGRES_HOST = 'localhost';
+      process.env.POSTGRES_PORT = '5432';
+      process.env.POSTGRES_USER = 'testuser';
+      process.env.POSTGRES_PASSWORD = 'testpass';
+      process.env.POSTGRES_DATABASE = 'testdb';
 
       const config = require('../../config');
 
