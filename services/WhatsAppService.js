@@ -274,8 +274,8 @@ class WhatsAppService {
               await this.sessionManager.clearLocalSession();
             }
             
-            // Send Discord alert if available
-            if (this.discordClient && this.config.discord.adminChannelId) {
+            // Send Discord alert if available (but not if QR was requested on-demand)
+            if (this.discordClient && this.config.discord.adminChannelId && !this.qrRequestedOnDemand) {
               try {
                 const channel = this.discordClient.channels.cache.get(this.config.discord.adminChannelId);
                 if (channel) {
@@ -284,6 +284,8 @@ class WhatsAppService {
               } catch (discordError) {
                 Logger.error('Failed to send Discord alert:', discordError);
               }
+            } else if (this.qrRequestedOnDemand) {
+              Logger.info('Skipping authentication failed message - QR was requested on-demand');
             }
           } catch (error) {
             Logger.error('Error in dynamic session recovery:', error);
@@ -708,14 +710,16 @@ class WhatsAppSessionManager {
         return;
       }
       
-      // Don't automatically send QR code - just notify admin
-      if (!this.hasExistingSession && !this.qrCodeSent && this.discordClient && this.config.discord.adminChannelId) {
+      // Don't automatically send QR code - just notify admin (but not if QR was already sent on-demand)
+      if (!this.hasExistingSession && !this.qrCodeSent && !qrRequestedOnDemand && this.discordClient && this.config.discord.adminChannelId) {
         await this.whatsappService.sendAdminNotification(
           'QR code generated. Use `/whatsapp_auth` command to request it for authentication.',
           'info'
         );
       } else if (this.qrCodeSent) {
         Logger.info('QR code already sent to Discord, skipping duplicate');
+      } else if (qrRequestedOnDemand) {
+        Logger.info('QR code was sent on-demand, skipping status notification');
       } else {
         Logger.warning('Discord client or admin channel not configured, QR code not sent to Discord');
       }
