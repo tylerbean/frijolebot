@@ -48,7 +48,7 @@ describe('PostgreSQLService.testConnection', () => {
       responseTime: expect.any(Number),
       dataCount: 1,
     });
-    expect(Logger.success).toHaveBeenCalledWith('PostgreSQL connection test successful');
+    expect(Logger.success).toHaveBeenCalledWith('PostgreSQL connection healthy');
   });
 
   test('handles a table COUNT failure gracefully', async () => {
