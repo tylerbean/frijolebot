@@ -243,7 +243,13 @@ class WhatsAppService {
           // Implement dynamic session recovery directly in event handler
           try {
             this.consecutiveAuthFailures++;
-            Logger.error(`Authentication failed (attempt ${this.consecutiveAuthFailures}/${this.maxAuthFailures}): Logged out`);
+            
+            // Only log as error if QR was not requested on-demand
+            if (!this.qrRequestedOnDemand) {
+              Logger.error(`Authentication failed (attempt ${this.consecutiveAuthFailures}/${this.maxAuthFailures}): Logged out`);
+            } else {
+              Logger.info(`Authentication reset for fresh QR generation (attempt ${this.consecutiveAuthFailures}/${this.maxAuthFailures}): Logged out`);
+            }
             
             await this.sessionManager.updateSessionStatus('failed');
             
