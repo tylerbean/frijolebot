@@ -71,6 +71,60 @@ class WhatsAppService {
     }
   }
 
+  async createSocket() {
+    // Initialize Baileys auth state
+    const { useMultiFileAuthState, makeWASocket } = this.baileys;
+    const { state, saveCreds } = await useMultiFileAuthState('./auth_info_baileys');
+    
+    // Create WhatsApp socket with Baileys
+    Logger.info('Creating Baileys socket with auth state...');
+    this.sock = makeWASocket({
+      auth: state,
+      printQRInTerminal: false,
+      logger: {
+        level: 'silent',
+        child: () => ({ 
+          level: 'silent',
+          trace: () => {},
+          debug: () => {},
+          info: () => {},
+          warn: () => {},
+          error: () => {},
+          fatal: () => {}
+        }),
+        trace: () => {},
+        debug: () => {},
+        info: () => {},
+        warn: () => {},
+        error: () => {},
+        fatal: () => {}
+      }
+    });
+    Logger.info('Baileys socket created successfully');
+
+    // Set up event listeners
+    this.setupEventListeners();
+    
+    // Handle credential updates
+    this.sock.ev.on('creds.update', saveCreds);
+  }
+
+  async reconnectWithExistingSession() {
+    try {
+      Logger.info('Reconnecting with existing session (not clearing session files)...');
+      
+      // Just recreate the socket with existing session files
+      await this.createSocket();
+      
+      Logger.info('Reconnected with existing session');
+    } catch (error) {
+      Logger.error('Failed to reconnect with existing session:', error);
+      // If reconnection fails, fall back to full initialization
+      Logger.info('Falling back to full initialization...');
+      await this.initializeClient();
+    }
+  }
+
   async initializeClient() {
     try {
       // Reset QR code sent flag for fresh authentication
@@ -96,13 +150,9 @@ class WhatsAppService {
         this.sessionManager.currentSessionId = baserowSession.session_id;
       } else if (hasLocalSession && !baserowSession) {
         Logger.warning('Found local session but no valid Baserow session - this may be a corrupted session');
-        Logger.info('Clearing potentially corrupted local session to force fresh authentication');
-        try {
-          await this.sessionManager.forceClearSession();
-          Logger.info('Successfully cleared corrupted local session');
-        } catch (clearError) {
-          Logger.error('Failed to clear corrupted session, will attempt to use existing session:', clearError.message);
-        }
+        Logger.info('However, this could also be a fresh session from QR scan - attempting to use it first');
+        // Don't immediately clear the session - try to use it first
+        // If it's truly corrupted, the authentication will fail and we'll clear it then
       } else if (!hasLocalSession && baserowSession) {
         Logger.warning('Found Baserow session but no local session - local files required for restoration');
         Logger.info('Clearing orphaned Baserow session and requiring fresh authentication');
@@ -113,41 +163,8 @@ class WhatsAppService {
         Logger.info('No existing sessions found, will require QR code authentication');
       }
 
-      // Initialize Baileys auth state
-      const { useMultiFileAuthState, makeWASocket } = this.baileys;
-      const { state, saveCreds } = await useMultiFileAuthState('./auth_info_baileys');
-      
-      // Create WhatsApp socket with Baileys
-      Logger.info('Creating Baileys socket with auth state...');
-      this.sock = makeWASocket({
-        auth: state,
-        printQRInTerminal: false,
-        logger: {
-          level: 'silent',
-          child: () => ({ 
-            level: 'silent',
-            trace: () => {},
-            debug: () => {},
-            info: () => {},
-            warn: () => {},
-            error: () => {},
-            fatal: () => {}
-          }),
-          trace: () => {},
-          debug: () => {},
-          info: () => {},
-          warn: () => {},
-          error: () => {},
-          fatal: () => {}
-        }
-      });
-      Logger.info('Baileys socket created successfully');
-
-      // Set up event listeners
-      this.setupEventListeners();
-      
-      // Handle credential updates
-      this.sock.ev.on('creds.update', saveCreds);
+      // Create the socket
+      await this.createSocket();
       
       Logger.info('WhatsApp client initialization completed');
       
@@ -289,9 +306,11 @@ class WhatsAppService {
           Logger.warning('Stream error detected (likely during QR scan) - attempting to reconnect...');
           Logger.info('This is expected behavior - WhatsApp may force disconnect to present authentication credentials');
           // For stream errors, we need to actively reconnect to complete authentication
+          // Don't call initializeClient() as it will try to clear the session
+          // Instead, just recreate the socket with existing session
           setTimeout(() => {
             Logger.info('Reconnecting after stream error to complete authentication...');
-            this.initializeClient();
+            this.reconnectWithExistingSession();
           }, 3000); // Wait 3 seconds before reconnecting
         } else {
           Logger.info('Connection closed but not logged out - waiting for reconnection...');
