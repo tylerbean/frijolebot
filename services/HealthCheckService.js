@@ -199,16 +199,16 @@ class HealthCheckService {
                 response_time: response.responseTime,
                 tables: {
                     links: {
-                        connected: response.tables.links.success,
-                        response_time: response.tables.links.responseTime,
+                        connected: response.tables?.links?.success || false,
+                        response_time: response.tables?.links?.responseTime || 0,
                         database: (this.postgresService.pool && this.postgresService.pool.options && this.postgresService.pool.options.database) || this.config.postgres?.database,
-                        data_count: response.tables.links.dataCount || 0
+                        data_count: response.tables?.links?.dataCount || 0
                     },
                     dmMapping: {
-                        connected: response.tables.dmMapping.success,
-                        response_time: response.tables.dmMapping.responseTime,
+                        connected: response.tables?.dmMapping?.success || false,
+                        response_time: response.tables?.dmMapping?.responseTime || 0,
                         database: (this.postgresService.pool && this.postgresService.pool.options && this.postgresService.pool.options.database) || this.config.postgres?.database,
-                        data_count: response.tables.dmMapping.dataCount || 0
+                        data_count: response.tables?.dmMapping?.dataCount || 0
                     }
                 }
             };

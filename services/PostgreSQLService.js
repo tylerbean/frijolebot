@@ -181,12 +181,50 @@ class PostgreSQLService {
             const result = await this.pool.query('SELECT NOW() as current_time, version() as version');
             const responseTime = Date.now() - startTime;
             
+            // Test individual tables for health check
+            const tables = {};
+            
+            // Test discord_links table
+            try {
+                const linksStartTime = Date.now();
+                const linksResult = await this.pool.query('SELECT COUNT(*) as count FROM discord_links');
+                tables.links = {
+                    success: true,
+                    responseTime: Date.now() - linksStartTime,
+                    dataCount: parseInt(linksResult.rows[0].count)
+                };
+            } catch (error) {
+                tables.links = {
+                    success: false,
+                    responseTime: 0,
+                    error: error.message
+                };
+            }
+            
+            // Test discord_dm_mappings table
+            try {
+                const dmStartTime = Date.now();
+                const dmResult = await this.pool.query('SELECT COUNT(*) as count FROM discord_dm_mappings');
+                tables.dmMapping = {
+                    success: true,
+                    responseTime: Date.now() - dmStartTime,
+                    dataCount: parseInt(dmResult.rows[0].count)
+                };
+            } catch (error) {
+                tables.dmMapping = {
+                    success: false,
+                    responseTime: 0,
+                    error: error.message
+                };
+            }
+            
             Logger.success('PostgreSQL connection test successful');
             return {
                 success: true,
                 responseTime,
                 currentTime: result.rows[0].current_time,
-                version: result.rows[0].version
+                version: result.rows[0].version,
+                tables
             };
         } catch (error) {
             const responseTime = Date.now() - startTime;
