@@ -14,7 +14,7 @@ class WhatsAppService {
     this.isConnected = false;
     this.isInitialized = false;
     this.sessionManager = null;
-    this.postgresService = null;
+    this.postgresService = postgresService;
     this.messageHandler = null;
     this.encryptionKey = config.whatsapp.sessionEncryptionKey;
     this.baileys = null; // Will store dynamically imported Baileys functions
@@ -42,8 +42,7 @@ class WhatsAppService {
       // Load Baileys library first
       await this.loadBaileys();
       
-      // Use provided PostgreSQL service
-      this.postgresService = postgresService;
+      // PostgreSQL service is already set in constructor
 
       // Initialize session manager
       this.sessionManager = new WhatsAppSessionManager(this.postgresService, this.encryptionKey, this.discordClient, this.config);
