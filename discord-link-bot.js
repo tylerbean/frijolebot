@@ -66,7 +66,7 @@ async function registerCommands() {
         Logger.startup('Started refreshing application (/) commands.');
         
         await rest.put(
-            Routes.applicationCommands(client.user.id),
+            Routes.applicationGuildCommands(client.user.id, config.discord.guildId),
             { body: commands }
         );
         
