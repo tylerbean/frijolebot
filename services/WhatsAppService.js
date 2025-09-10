@@ -24,6 +24,7 @@ class WhatsAppService {
     this.maxRestartAttempts = 10; // Maximum total restart attempts before giving up
     this.hourlyReminderInterval = null; // For hourly disconnect notifications
     this.qrRequestedOnDemand = false; // Track if QR was requested via /whatsapp_auth command
+    this.startupNotificationSent = false; // Track if startup notification was sent
     
     Logger.info('WhatsAppService initialized');
   }
@@ -209,6 +210,7 @@ class WhatsAppService {
         this.totalRestartAttempts = 0; // Reset restart counter on successful connection
         this.sessionManager.qrCodeSent = false; // Reset QR code sent flag on successful connection
         this.qrRequestedOnDemand = false; // Reset on-demand QR flag on successful connection
+        this.startupNotificationSent = false; // Reset startup notification flag on successful connection
         this.sessionManager.cancelSessionRestoreTimeout();
         await this.sessionManager.saveSession();
         await this.sessionManager.updateSessionStatus('active');
@@ -414,10 +416,13 @@ class WhatsAppService {
     try {
       if (this.isConnected) {
         // Already connected, send success notification and clear reminders
-        await this.sendAdminNotification(
-          'Connected and ready for message forwarding.',
-          'info'
-        );
+        if (!this.startupNotificationSent) {
+          await this.sendAdminNotification(
+            'Connected and ready for message forwarding.',
+            'info'
+          );
+          this.startupNotificationSent = true;
+        }
         
         // Clear hourly reminder since we're connected
         if (this.hourlyReminderInterval) {
@@ -430,22 +435,26 @@ class WhatsAppService {
       // Check if we have a valid session
       const hasValidSession = await this.sessionManager.getActiveSession();
       
-      if (!hasValidSession) {
-        // No valid session found - notify admin
+      if (!hasValidSession && !this.startupNotificationSent) {
+        // No valid session found - notify admin (only once on startup)
         await this.sendAdminNotification(
           'Not authenticated. Use `/whatsapp_auth` command to generate a QR code for authentication.',
           'warning'
         );
+        this.startupNotificationSent = true;
         
         // Set up hourly reminder if still not connected
         this.setupHourlyReminder();
       }
     } catch (error) {
       Logger.error('Error checking session status:', error);
-      await this.sendAdminNotification(
-        'Error checking authentication status. Please check logs.',
-        'error'
-      );
+      if (!this.startupNotificationSent) {
+        await this.sendAdminNotification(
+          'Error checking authentication status. Please check logs.',
+          'error'
+        );
+        this.startupNotificationSent = true;
+      }
     }
   }
 

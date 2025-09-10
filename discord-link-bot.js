@@ -71,6 +71,7 @@ async function registerCommands() {
         );
         
         Logger.success('Successfully reloaded application (/) commands.');
+        Logger.info(`Registered ${commands.length} commands:`, commands.map(cmd => cmd.name));
     } catch (error) {
         Logger.error('Error registering commands:', error);
     }
