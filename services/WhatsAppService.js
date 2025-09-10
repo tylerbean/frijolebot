@@ -57,7 +57,7 @@ class WhatsAppService {
       this.sessionManager = new WhatsAppSessionManager(this.baserowService, this.encryptionKey, this.discordClient, this.config);
       
       // Initialize message handler
-      this.messageHandler = new WhatsAppMessageHandler(this.baserowService, this.discordClient, this.config);
+      this.messageHandler = new WhatsAppMessageHandler(this.baserowService, this.discordClient, this.config, this);
       
       // Initialize WhatsApp client
       await this.initializeClient();
@@ -783,10 +783,11 @@ class WhatsAppSessionManager {
 
 // Message Handler Class
 class WhatsAppMessageHandler {
-  constructor(baserowService, discordClient, config) {
+  constructor(baserowService, discordClient, config, whatsappService) {
     this.baserowService = baserowService;
     this.discordClient = discordClient;
     this.config = config;
+    this.whatsappService = whatsappService;
   }
 
   async handleMessage(message) {
@@ -912,8 +913,8 @@ class WhatsAppMessageHandler {
           let mimetype = 'application/octet-stream';
           
           // Ensure Baileys is loaded and get message type
-          await this.loadBaileys();
-          const { getContentType } = this.baileys;
+          await this.whatsappService.loadBaileys();
+          const { getContentType } = this.whatsappService.baileys;
           const messageType = getContentType(message.message);
           
           // Set filename and mimetype based on message type
@@ -934,15 +935,15 @@ class WhatsAppMessageHandler {
           
           try {
             // Ensure Baileys is loaded and use downloadMediaMessage with proper error handling
-            await this.loadBaileys();
-            const { downloadMediaMessage } = this.baileys;
+            await this.whatsappService.loadBaileys();
+            const { downloadMediaMessage } = this.whatsappService.baileys;
             const downloadOptions = {
               logger: Logger
             };
             
             // Add reupload request if the method exists
-            if (this.sock && typeof this.sock.updateMediaMessage === 'function') {
-              downloadOptions.reuploadRequest = this.sock.updateMediaMessage;
+            if (this.whatsappService.sock && typeof this.whatsappService.sock.updateMediaMessage === 'function') {
+              downloadOptions.reuploadRequest = this.whatsappService.sock.updateMediaMessage;
             }
             
             const stream = await downloadMediaMessage(
@@ -962,14 +963,14 @@ class WhatsAppMessageHandler {
             
             // If media download fails, try to request reupload (if supported)
             try {
-              if (this.sock && typeof this.sock.updateMediaMessage === 'function') {
+              if (this.whatsappService.sock && typeof this.whatsappService.sock.updateMediaMessage === 'function') {
                 Logger.info('Attempting to request media reupload...');
-                await this.sock.updateMediaMessage(message);
+                await this.whatsappService.sock.updateMediaMessage(message);
                 
                 // Wait a moment and try download again
                 await new Promise(resolve => setTimeout(resolve, 2000));
-                await this.loadBaileys();
-                const { downloadMediaMessage: retryDownloadMediaMessage } = this.baileys;
+                await this.whatsappService.loadBaileys();
+                const { downloadMediaMessage: retryDownloadMediaMessage } = this.whatsappService.baileys;
                 const retryStream = await retryDownloadMediaMessage(
                   message,
                   'stream',
