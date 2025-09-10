@@ -47,7 +47,7 @@ class WhatsAppService {
       // PostgreSQL service is already set in constructor
 
       // Initialize session manager
-      this.sessionManager = new WhatsAppSessionManager(this.postgresService, this.encryptionKey, this.discordClient, this.config);
+      this.sessionManager = new WhatsAppSessionManager(this.postgresService, this.encryptionKey, this.discordClient, this.config, this);
       
       // Initialize message handler
       this.messageHandler = new WhatsAppMessageHandler(this.postgresService, this.discordClient, this.config, this);
@@ -565,11 +565,12 @@ class WhatsAppService {
 
 // Session Manager Class
 class WhatsAppSessionManager {
-  constructor(postgresService, encryptionKey, discordClient, config) {
+  constructor(postgresService, encryptionKey, discordClient, config, whatsappService) {
     this.postgresService = postgresService;
     this.encryptionKey = encryptionKey;
     this.discordClient = discordClient;
     this.config = config;
+    this.whatsappService = whatsappService; // Reference to main WhatsApp service
     this.currentSessionId = null;
     this.hasExistingSession = false;
     this.sessionRestoreTimeout = null;
@@ -679,7 +680,7 @@ class WhatsAppSessionManager {
             Logger.warning('Session restoration timeout - notifying admin to use /whatsapp_auth command');
             // Send notification instead of QR code
             if (this.discordClient && this.config.discord.adminChannelId) {
-              await this.sendAdminNotification(
+              await this.whatsappService.sendAdminNotification(
                 'Session restoration failed. Use `/whatsapp_auth` command to generate a QR code for authentication.',
                 'warning'
               );
@@ -692,7 +693,7 @@ class WhatsAppSessionManager {
       
       // Don't automatically send QR code - just notify admin
       if (!this.hasExistingSession && !this.qrCodeSent && this.discordClient && this.config.discord.adminChannelId) {
-        await this.sendAdminNotification(
+        await this.whatsappService.sendAdminNotification(
           'QR code generated. Use `/whatsapp_auth` command to request it for authentication.',
           'info'
         );
