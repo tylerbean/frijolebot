@@ -17,17 +17,26 @@ export default function WhatsAppProxyPanel() {
 
   useEffect(() => {
     (async () => {
-      const [cfg, ch, chats, avail] = await Promise.all([
-        fetch('/api/config', { cache: 'no-store' }).then(r => r.json()),
-        fetch('/api/discord/channels', { cache: 'no-store' }).then(r => r.json()),
-        fetch('/api/whatsapp/chats', { cache: 'no-store' }).then(r => r.json()),
-        fetch('/api/whatsapp/available-chats', { cache: 'no-store' }).then(r => r.json()),
-      ]);
-      setEnabled(String(cfg.WHATSAPP_ENABLED) === 'true');
-      setStore(String(cfg.WHATSAPP_STORE_MESSAGES) === 'true');
-      setChannels(ch.channels ?? []);
-      setRows((chats.chats ?? []).map((c: any) => ({ chatId: c.chat_id, chatName: c.chat_name ?? c.chat_id, channelId: c.discord_channel_id ?? '', isActive: c.is_active })));
-      setAvailableChats((avail.chats ?? []).map((c: any) => ({ chat_id: c.chat_id, chat_name: c.chat_name })));
+      try {
+        const cfg = await fetch('/api/config', { cache: 'no-store' }).then(r => r.json());
+        setEnabled(String(cfg.WHATSAPP_ENABLED) === 'true');
+        setStore(String(cfg.WHATSAPP_STORE_MESSAGES) === 'true');
+      } catch (_) {}
+
+      try {
+        const ch = await fetch('/api/discord/channels', { cache: 'no-store' }).then(r => r.json());
+        setChannels(ch.channels ?? []);
+      } catch (_) { setChannels([]); }
+
+      try {
+        const chats = await fetch('/api/whatsapp/chats', { cache: 'no-store' }).then(r => r.json());
+        setRows((chats.chats ?? []).map((c: any) => ({ chatId: c.chat_id, chatName: c.chat_name ?? c.chat_id, channelId: c.discord_channel_id ?? '', isActive: c.is_active })));
+      } catch (_) { setRows([]); }
+
+      try {
+        const avail = await fetch('/api/whatsapp/available-chats', { cache: 'no-store' }).then(r => r.json());
+        setAvailableChats((avail.chats ?? []).map((c: any) => ({ chat_id: c.chat_id, chat_name: c.chat_name })));
+      } catch (_) { setAvailableChats([]); }
     })();
   }, []);
 

@@ -15,6 +15,9 @@ async function main() {
 
 Logger.startup('Bot starting...');
 Logger.startup(`Monitoring ${config.discord.channelsToMonitor.length} channels`);
+if (config.discord.channelsToMonitor.length === 0) {
+  Logger.warning('No Discord channels configured; LinkTracker will be idle until channels are added via control panel.');
+}
 
   // Run lock handling to detect ungraceful previous shutdowns
   const RUN_LOCK_PATH = path.join(process.cwd(), 'run.lock');

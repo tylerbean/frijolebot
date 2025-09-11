@@ -37,7 +37,8 @@ export async function GET() {
     cache: 'no-store'
   });
   if (!res.ok) {
-    return NextResponse.json({ error: 'Failed to fetch channels' }, { status: res.status });
+    // Fail-soft: return empty list so UI stays functional
+    return NextResponse.json({ channels: [] }, { status: 200 });
   }
   const data = await res.json();
   const channels = (Array.isArray(data) ? data : [])
