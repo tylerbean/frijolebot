@@ -4,6 +4,7 @@ import { Switch, Listbox } from '@headlessui/react';
 import { useReactTable, getCoreRowModel, createColumnHelper, flexRender } from '@tanstack/react-table';
 
 type Channel = { id: string; name: string };
+type WAChat = { chat_id: string; chat_name: string };
 type Mapping = { chatId: string; chatName: string; channelId?: string; isActive?: boolean };
 
 export default function WhatsAppProxyPanel() {
@@ -11,25 +12,45 @@ export default function WhatsAppProxyPanel() {
   const [store, setStore] = useState(false);
   const [channels, setChannels] = useState<Channel[]>([]);
   const [rows, setRows] = useState<Mapping[]>([]);
+  const [availableChats, setAvailableChats] = useState<WAChat[]>([]);
   const [pending, setPending] = useState(false);
 
   useEffect(() => {
     (async () => {
-      const [cfg, ch, chats] = await Promise.all([
+      const [cfg, ch, chats, avail] = await Promise.all([
         fetch('/api/config', { cache: 'no-store' }).then(r => r.json()),
         fetch('/api/discord/channels', { cache: 'no-store' }).then(r => r.json()),
         fetch('/api/whatsapp/chats', { cache: 'no-store' }).then(r => r.json()),
+        fetch('/api/whatsapp/available-chats', { cache: 'no-store' }).then(r => r.json()),
       ]);
       setEnabled(String(cfg.WHATSAPP_ENABLED) === 'true');
       setStore(String(cfg.WHATSAPP_STORE_MESSAGES) === 'true');
       setChannels(ch.channels ?? []);
       setRows((chats.chats ?? []).map((c: any) => ({ chatId: c.chat_id, chatName: c.chat_name ?? c.chat_id, channelId: c.discord_channel_id ?? '', isActive: c.is_active })));
+      setAvailableChats((avail.chats ?? []).map((c: any) => ({ chat_id: c.chat_id, chat_name: c.chat_name })));
     })();
   }, []);
 
   const columnHelper = createColumnHelper<Mapping>();
   const columns = useMemo(() => [
-    columnHelper.accessor('chatName', { header: 'Chat Name' }),
+    columnHelper.display({
+      id: 'chatName',
+      header: 'Chat Name',
+      cell: ({ row }) => (
+        <Listbox value={row.original.chatId} onChange={(v) => updateChat(row.index, v)}>
+          <Listbox.Button className="rounded border px-3 py-2 w-64 text-left">
+            {row.original.chatName || 'Select a chat'}
+          </Listbox.Button>
+          <Listbox.Options className="mt-1 max-h-60 w-72 overflow-auto rounded border bg-white shadow">
+            {availableChats.map(c => (
+              <Listbox.Option key={c.chat_id} value={c.chat_id} className="px-3 py-2 ui-active:bg-indigo-50 cursor-pointer">
+                {c.chat_name}
+              </Listbox.Option>
+            ))}
+          </Listbox.Options>
+        </Listbox>
+      )
+    }),
     columnHelper.display({
       id: 'channel',
       header: 'Discord Channel',
@@ -80,6 +101,10 @@ export default function WhatsAppProxyPanel() {
   }
   function updateRow(index: number, channelId: string) {
     setRows(prev => prev.map((r, i) => i === index ? ({ ...r, channelId }) : r));
+  }
+  function updateChat(index: number, chatId: string) {
+    const found = availableChats.find(c => c.chat_id === chatId);
+    setRows(prev => prev.map((r, i) => i === index ? ({ ...r, chatId, chatName: found?.chat_name ?? chatId }) : r));
   }
   function updateActive(index: number, active: boolean) {
     setRows(prev => prev.map((r, i) => i === index ? ({ ...r, isActive: active }) : r));
