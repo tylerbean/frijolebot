@@ -4,7 +4,7 @@ import { Switch, Listbox } from '@headlessui/react';
 import { useReactTable, getCoreRowModel, createColumnHelper, flexRender } from '@tanstack/react-table';
 
 type Channel = { id: string; name: string };
-type Mapping = { chatId: string; chatName: string; channelId?: string };
+type Mapping = { chatId: string; chatName: string; channelId?: string; isActive?: boolean };
 
 export default function WhatsAppProxyPanel() {
   const [enabled, setEnabled] = useState(false);
@@ -23,13 +23,13 @@ export default function WhatsAppProxyPanel() {
       setEnabled(String(cfg.WHATSAPP_ENABLED) === 'true');
       setStore(String(cfg.WHATSAPP_STORE_MESSAGES) === 'true');
       setChannels(ch.channels ?? []);
-      setRows((chats.chats ?? []).map((c: any) => ({ chatId: c.chat_id, chatName: c.chat_id, channelId: c.discord_channel_id ?? '' })));
+      setRows((chats.chats ?? []).map((c: any) => ({ chatId: c.chat_id, chatName: c.chat_name ?? c.chat_id, channelId: c.discord_channel_id ?? '', isActive: c.is_active })));
     })();
   }, []);
 
   const columnHelper = createColumnHelper<Mapping>();
   const columns = useMemo(() => [
-    columnHelper.accessor('chatName', { header: 'WhatsApp Conversation' }),
+    columnHelper.accessor('chatName', { header: 'Chat Name' }),
     columnHelper.display({
       id: 'channel',
       header: 'Discord Channel',
@@ -46,6 +46,19 @@ export default function WhatsAppProxyPanel() {
             ))}
           </Listbox.Options>
         </Listbox>
+      )
+    }),
+    columnHelper.display({
+      id: 'enabled',
+      header: 'Enabled',
+      cell: ({ row }) => (
+        <Switch
+          checked={!!row.original.isActive}
+          onChange={(v) => updateActive(row.index, v)}
+          className={`${row.original.isActive ? 'bg-indigo-600' : 'bg-gray-300'} relative inline-flex h-5 w-10 items-center rounded-full`}
+        >
+          <span className={`${row.original.isActive ? 'translate-x-5' : 'translate-x-1'} inline-block h-4 w-4 transform rounded-full bg-white transition`} />
+        </Switch>
       )
     }),
     columnHelper.display({
@@ -68,6 +81,9 @@ export default function WhatsAppProxyPanel() {
   function updateRow(index: number, channelId: string) {
     setRows(prev => prev.map((r, i) => i === index ? ({ ...r, channelId }) : r));
   }
+  function updateActive(index: number, active: boolean) {
+    setRows(prev => prev.map((r, i) => i === index ? ({ ...r, isActive: active }) : r));
+  }
 
   async function save() {
     setPending(true);
@@ -78,7 +94,7 @@ export default function WhatsAppProxyPanel() {
       };
       const res = await fetch('/api/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       if (!res.ok) throw new Error('Failed to save');
-      const chatsPayload = { chats: rows.filter(r => r.chatId).map(r => ({ chat_id: r.chatId, discord_channel_id: r.channelId || null, is_active: true })) };
+      const chatsPayload = { chats: rows.filter(r => r.chatId).map(r => ({ chat_id: r.chatId, discord_channel_id: r.channelId || null, is_active: r.isActive ?? true, chat_name: r.chatName || null })) };
       const res2 = await fetch('/api/whatsapp/chats', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(chatsPayload) });
       if (!res2.ok) throw new Error('Failed to save chats');
     } finally {
