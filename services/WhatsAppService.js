@@ -1088,14 +1088,18 @@ class WhatsAppMessageHandler {
       // Ignore system notification messages
       if (message.message?.protocolMessage?.type === 'REVOKE' || 
           message.message?.protocolMessage?.type === 'EPHEMERAL_SETTING') {
-        const chatDisplayName = await this.getChatDisplayName(message.key.remoteJid);
+        const chatDisplayName = this.whatsappService && typeof this.whatsappService.getChatDisplayName === 'function'
+          ? await this.whatsappService.getChatDisplayName(message.key.remoteJid)
+          : message.key.remoteJid;
         Logger.debug(`Ignoring system message from ${chatDisplayName}`);
         return;
       }
       
       // Ignore sender key distribution messages (encryption setup)
       if (message.message?.senderKeyDistributionMessage) {
-        const chatDisplayName = await this.getChatDisplayName(message.key.remoteJid);
+        const chatDisplayName = this.whatsappService && typeof this.whatsappService.getChatDisplayName === 'function'
+          ? await this.whatsappService.getChatDisplayName(message.key.remoteJid)
+          : message.key.remoteJid;
         Logger.debug(`Ignoring sender key distribution message from ${chatDisplayName}`);
         return;
       }
@@ -1117,7 +1121,9 @@ class WhatsAppMessageHandler {
                    '';
       
       // Get chat display name for logging
-      const chatDisplayName = await this.getChatDisplayName(chatId);
+      const chatDisplayName = this.whatsappService && typeof this.whatsappService.getChatDisplayName === 'function'
+        ? await this.whatsappService.getChatDisplayName(chatId)
+        : chatId;
       
       // Debug logging for all incoming messages
       Logger.info(`WhatsApp message received from: ${chatDisplayName}${isFromMe ? ' (sent by me)' : ''}`, {
