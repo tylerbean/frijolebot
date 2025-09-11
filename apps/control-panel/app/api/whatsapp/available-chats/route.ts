@@ -1,26 +1,18 @@
 import { NextResponse } from 'next/server';
-import { getPool } from '../../../../lib/db';
 
+// Bridge to the bot: fetch live chats from the bot's health endpoint
 export async function GET() {
-  const pool = getPool();
-  const client = await pool.connect();
   try {
-    // Prefer rows with chat_name when present
-    const res = await client.query(
-      `SELECT chat_id, NULLIF(chat_name, '') AS chat_name, is_active
-       FROM whatsapp_chats
-       ORDER BY updated_at DESC NULLS LAST, created_at DESC`
-    );
-    const rows = res.rows.map((r: any) => ({
-      chat_id: r.chat_id,
-      chat_name: r.chat_name ?? r.chat_id,
-      is_active: r.is_active,
-    }));
-    return NextResponse.json({ chats: rows });
+    const url = process.env.WHATSAPP_BOT_HEALTH_URL || 'http://localhost:3000/whatsapp/chats';
+    const res = await fetch(url, { cache: 'no-store' });
+    if (!res.ok) {
+      return NextResponse.json({ error: 'Failed to fetch from bot' }, { status: res.status });
+    }
+    const data = await res.json();
+    const chats = (data.chats || []).map((c: any) => ({ chat_id: c.id, chat_name: c.name }));
+    return NextResponse.json({ chats });
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 500 });
-  } finally {
-    client.release();
   }
 }
 

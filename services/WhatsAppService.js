@@ -18,6 +18,7 @@ class WhatsAppService {
     this.messageHandler = null;
     this.encryptionKey = config.whatsapp.sessionEncryptionKey;
     this.baileys = null; // Will store dynamically imported Baileys functions
+    this.store = null; // In-memory store for listing chats
     this.consecutiveAuthFailures = 0; // Track consecutive authentication failures
     this.maxAuthFailures = 3; // Force clear session after 3 consecutive failures
     this.totalRestartAttempts = 0; // Track total restart attempts
@@ -75,7 +76,7 @@ class WhatsAppService {
 
   async createSocket() {
     // Initialize Baileys auth state
-    const { useMultiFileAuthState, makeWASocket } = this.baileys;
+    const { useMultiFileAuthState, makeWASocket, makeInMemoryStore } = this.baileys;
     const { state, saveCreds } = await useMultiFileAuthState('./auth_info_baileys');
     
     // Create WhatsApp socket with Baileys
@@ -103,6 +104,21 @@ class WhatsAppService {
       }
     });
     Logger.info('Baileys socket created successfully');
+
+    // Initialize in-memory store for chat listing
+    try {
+      if (!this.store && typeof makeInMemoryStore === 'function') {
+        // Create a silent logger stub for the store
+        const silent = { level: 'silent', trace: () => {}, debug: () => {}, info: () => {}, warn: () => {}, error: () => {}, fatal: () => {}, child: () => silent };
+        this.store = makeInMemoryStore({ logger: silent });
+        if (this.sock && this.sock.ev) {
+          this.store.bind(this.sock.ev);
+          Logger.info('In-memory store initialized and bound to socket events');
+        }
+      }
+    } catch (e) {
+      Logger.warning(`Failed to initialize in-memory store: ${e.message}`);
+    }
 
     // Set up event listeners
     this.setupEventListeners();

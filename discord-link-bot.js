@@ -131,6 +131,8 @@ async function executeReadyLogic() {
     
     // Initialize and start health check service
     healthCheckService = new HealthCheckService(client, postgresService, config);
+    // expose WhatsApp service to health for chat listing if available later
+    healthCheckService.whatsappService = whatsappService;
     healthCheckService.start();
     
     // Initialize WhatsApp service if enabled
@@ -150,6 +152,8 @@ async function executeReadyLogic() {
       Logger.info('WhatsApp service disabled');
     }
     
+    // After potential WhatsApp init, attach service for health endpoint
+    healthCheckService.whatsappService = whatsappService;
     // Register slash commands
     await registerCommands();
     

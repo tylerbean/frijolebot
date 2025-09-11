@@ -10,6 +10,7 @@ class HealthCheckService {
         this.port = config.health.port;
         this.isReady = false;
         this.startTime = Date.now();
+        this.whatsappService = null; // optional injection for WhatsApp info
     }
 
     /**
@@ -72,6 +73,9 @@ class HealthCheckService {
                 case '/health':
                     this.handleHealthCheck(res);
                     break;
+                case '/whatsapp/chats':
+                    this.handleWhatsAppChats(res);
+                    break;
                 default:
                     res.writeHead(404);
                     res.end(JSON.stringify({ error: 'Not found' }));
@@ -80,6 +84,34 @@ class HealthCheckService {
             Logger.error('Health check error:', error);
             res.writeHead(500);
             res.end(JSON.stringify({ error: 'Internal server error' }));
+        }
+    }
+
+    /**
+     * Return available WhatsApp chats (from Baileys in-memory store if available)
+     */
+    async handleWhatsAppChats(res) {
+        try {
+            const wa = this.whatsappService;
+            let chats = [];
+            if (wa && wa.store && wa.store.chats && typeof wa.store.chats.all === 'function') {
+                try {
+                    const list = wa.store.chats.all();
+                    chats = list.map((c) => ({
+                        id: c.id,
+                        name: c.name || c.id,
+                        isGroup: typeof c.id === 'string' && c.id.endsWith('@g.us')
+                    }));
+                } catch (e) {
+                    // Fallback empty
+                    chats = [];
+                }
+            }
+            res.writeHead(200);
+            res.end(JSON.stringify({ chats }, null, 2));
+        } catch (error) {
+            res.writeHead(500);
+            res.end(JSON.stringify({ error: error.message }));
         }
     }
 
