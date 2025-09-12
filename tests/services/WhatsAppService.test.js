@@ -29,13 +29,7 @@ jest.mock('@whiskeysockets/baileys', () => {
     };
 });
 
-// Mock crypto-js
-jest.mock('crypto-js', () => ({
-    AES: {
-        encrypt: jest.fn().mockReturnValue('encrypted_data'),
-        decrypt: jest.fn().mockReturnValue('decrypted_data')
-    }
-}));
+// crypto-js no longer used
 
 // Mock qrcode
 jest.mock('qrcode', () => ({
@@ -97,21 +91,13 @@ describe('WhatsAppService', () => {
             expect(whatsappService.sock).toBeNull();
             expect(whatsappService.isConnected).toBe(false);
             expect(whatsappService.isInitialized).toBe(false);
-            expect(whatsappService.encryptionKey).toBe('test-encryption-key-32-characters');
+            expect(whatsappService.encryptionKey).toBeUndefined();
         });
 
         test('should initialize with custom encryption key from config', () => {
-            const customConfig = {
-                ...mockConfig,
-                whatsapp: {
-                    ...mockConfig.whatsapp,
-                    sessionEncryptionKey: 'custom-encryption-key'
-                }
-            };
-            
+            const customConfig = { ...mockConfig };
             whatsappService = new WhatsAppService(customConfig);
-            
-            expect(whatsappService.encryptionKey).toBe('custom-encryption-key');
+            expect(whatsappService.encryptionKey).toBeUndefined();
         });
     });
 
@@ -328,7 +314,6 @@ describe('WhatsAppService', () => {
             const validConfig = {
                 whatsapp: {
                     enabled: true,
-                    sessionEncryptionKey: 'test-key-32-characters-long',
                     storeMessages: true
                 },
                 baserow: {

@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { getPool } from '../../../../lib/db';
 
@@ -63,6 +64,14 @@ export async function PUT(request: Request) {
           );
         }
       }
+      // Deletion-on-save: remove any rows not present in submitted list
+      const ids = body.chats.filter((r: any) => r && typeof r.chat_id === 'string').map((r: any) => r.chat_id);
+      if (ids.length === 0) {
+        await client.query(`DELETE FROM whatsapp_chats`);
+      } else {
+        const placeholders = ids.map((_, i) => `$${i + 1}`).join(',');
+        await client.query(`DELETE FROM whatsapp_chats WHERE chat_id NOT IN (${placeholders})`, ids);
+      }
       await client.query('COMMIT');
     } catch (err) {
       await client.query('ROLLBACK');
@@ -70,6 +79,17 @@ export async function PUT(request: Request) {
     } finally {
       client.release();
     }
+    // Notify bot admin channel
+    try {
+      const url = process.env.WHATSAPP_BOT_HEALTH_URL?.replace('/whatsapp/chats', '/admin/notify') || 'http://localhost:3000/admin/notify';
+      const token = process.env.ADMIN_NOTIFY_TOKEN || process.env.NEXT_PUBLIC_ADMIN_NOTIFY_TOKEN;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(token ? { 'x-admin-token': token } : {}) },
+        body: JSON.stringify({ type: 'whatsapp_mappings_updated', payload: { items: body.chats } })
+      });
+      // ignore response
+    } catch (_) {}
     return NextResponse.json({ ok: true });
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 500 });

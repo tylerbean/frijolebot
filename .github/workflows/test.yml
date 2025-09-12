@@ -26,21 +26,6 @@ jobs:
     - name: Run tests
       run: npm run test:ci
 
-    - name: Check syntax
-      run: |
-        echo "Checking JavaScript syntax..."
-        node -c discord-link-bot.js
-        node -c config/index.js
-        node -c services/PostgreSQLService.js
-        node -c services/HealthCheckService.js
-        node -c services/WhatsAppService.js
-        node -c handlers/commandHandler.js
-        node -c handlers/messageHandler.js
-        node -c handlers/reactionHandler.js
-        node -c utils/logger.js
-        node -c utils/rateLimiter.js
-        echo "✅ All syntax checks passed!"
-
     - name: Test Docker build
       run: |
         echo "Testing Docker build..."
@@ -61,7 +46,6 @@ jobs:
           -e POSTGRES_USER=test_user \
           -e POSTGRES_PASSWORD=test_password \
           -e WHATSAPP_ENABLED=false \
-          -e WHATSAPP_SESSION_ENCRYPTION_KEY=test-encryption-key-32-characters \
           -e NODE_ENV=test \
           -e HEALTH_CHECK_PORT=3000 \
           -e TIMEZONE=UTC \

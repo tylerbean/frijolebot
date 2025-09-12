@@ -1,5 +1,5 @@
 # Use Node.js 20 Alpine for Baileys compatibility
-FROM node:20-alpine
+FROM node:20-alpine AS base
 
 # Install system dependencies (minimal for Baileys)
 RUN apk add --no-cache \
@@ -10,16 +10,17 @@ WORKDIR /app
 
 # Copy package files first for better caching
 COPY package*.json ./
-
-# Install dependencies (production only for smaller image)
-RUN npm ci --only=production && npm cache clean --force
+# Install all deps for building UI as well
+RUN npm ci && npm cache clean --force
 
 # Copy application code (excluding test files and dev dependencies)
 COPY config/ ./config/
 COPY services/ ./services/
 COPY handlers/ ./handlers/
 COPY utils/ ./utils/
+COPY gateway/ ./gateway/
 COPY discord-link-bot.js ./
+COPY apps/control-panel ./apps/control-panel
 
 # Create non-root user for security
 RUN addgroup -g 1001 -S nodejs && \
@@ -32,12 +33,34 @@ RUN mkdir -p /app/auth_info_baileys
 RUN chown -R botuser:nodejs /app
 USER botuser
 
-# Expose health check port
+# Build the UI if a valid package.json exists, otherwise skip (use prebuilt .next)
+WORKDIR /app/apps/control-panel
+RUN npm ci && npm run build
+
+FROM node:20-alpine AS runner
+WORKDIR /app
+ENV NODE_ENV=production
+COPY --from=base /app/node_modules ./node_modules
+COPY --from=base /app/config ./config
+COPY --from=base /app/services ./services
+COPY --from=base /app/handlers ./handlers
+COPY --from=base /app/utils ./utils
+COPY --from=base /app/gateway ./gateway
+COPY --from=base /app/package*.json ./
+COPY --from=base /app/discord-link-bot.js ./
+# Copy entire control-panel directory to support dev fallback (includes app/, .next/, node_modules/, public)
+COPY --from=base /app/apps/control-panel ./apps/control-panel
+
+# Expose single port
 EXPOSE 3000
 
-# Health check using the built-in health check endpoint
+# Health check via gateway → bot
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD wget --no-verbose --tries=1 --spider http://localhost:3000/health/live || exit 1
 
-# Start the bot
-CMD ["npm", "start"]
+# Start via entrypoint to forward signals for graceful shutdown
+ENV PORT=3000
+ENV HEALTH_CHECK_PORT=3001
+COPY scripts/start.sh /app/scripts/start.sh
+RUN chmod +x /app/scripts/start.sh
+CMD ["/app/scripts/start.sh"]

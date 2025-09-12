@@ -5,6 +5,9 @@ class PostgreSQLService {
     constructor(connectionConfig) {
         this.pool = new Pool(connectionConfig);
         this._lastConnectionHealthy = null; // track last health result for change-only logging
+        // Simple in-process cache for feature flags (invalidated via pub/sub)
+        this._flagCache = new Map(); // key -> { value: boolean, expiresAt: number }
+        this._flagTtlMs = 60 * 1000; // 60s TTL
         
         // Test connection on initialization
         this.pool.on('connect', () => {
@@ -21,6 +24,62 @@ class PostgreSQLService {
             database: connectionConfig.database,
             user: connectionConfig.user
         });
+    }
+
+    // ===== FEATURE FLAGS METHODS =====
+    async getFeatureFlag(key) {
+        try {
+            const res = await this.pool.query(`SELECT value FROM feature_flags WHERE key = $1`, [key]);
+            return res.rows.length ? !!res.rows[0].value : false;
+        } catch (e) {
+            Logger.error('Error reading feature flag:', key, e);
+            return false;
+        }
+    }
+
+    async setFeatureFlag(key, value) {
+        try {
+            await this.pool.query(`
+                INSERT INTO feature_flags(key, value, updated_at)
+                VALUES ($1, $2, CURRENT_TIMESTAMP)
+                ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = CURRENT_TIMESTAMP
+            `, [key, !!value]);
+            // Update local cache immediately
+            const expiresAt = Date.now() + this._flagTtlMs;
+            this._flagCache.set(key, { value: !!value, expiresAt });
+            return true;
+        } catch (e) {
+            Logger.error('Error setting feature flag:', key, e);
+            return false;
+        }
+    }
+
+    getFeatureFlagCached(key) {
+        try {
+            const now = Date.now();
+            const cached = this._flagCache.get(key);
+            if (cached && cached.expiresAt > now) {
+                return Promise.resolve(!!cached.value);
+            }
+        } catch (_) {}
+        return (async () => {
+            const value = await this.getFeatureFlag(key);
+            try {
+                const expiresAt = Date.now() + this._flagTtlMs;
+                this._flagCache.set(key, { value, expiresAt });
+            } catch (_) {}
+            return value;
+        })();
+    }
+
+    invalidateFlagCache(keys = null) {
+        try {
+            if (Array.isArray(keys) && keys.length) {
+                for (const k of keys) this._flagCache.delete(k);
+            } else {
+                this._flagCache.clear();
+            }
+        } catch (_) {}
     }
 
     /**
@@ -87,11 +146,16 @@ class PostgreSQLService {
                     id SERIAL PRIMARY KEY,
                     chat_id VARCHAR(100) UNIQUE NOT NULL,
                     discord_channel_id VARCHAR(20) NOT NULL,
+                    chat_name VARCHAR(255),
                     is_active BOOLEAN DEFAULT TRUE,
                     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
                 )
             `);
+            // Backfill: add chat_name if missing (for existing deployments)
+            try {
+                await this.pool.query(`ALTER TABLE whatsapp_chats ADD COLUMN IF NOT EXISTS chat_name VARCHAR(255)`);
+            } catch (_) {}
 
             // Create WhatsApp Messages table
             await this.pool.query(`
@@ -106,6 +170,25 @@ class PostgreSQLService {
                     discord_guild_id VARCHAR(20),
                     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
                 )
+            `);
+
+            // Create Discord monitored channels table
+            await this.pool.query(`
+                CREATE TABLE IF NOT EXISTS discord_links_channels (
+                    id SERIAL PRIMARY KEY,
+                    guild_id VARCHAR(20) NOT NULL,
+                    channel_id VARCHAR(20) NOT NULL,
+                    channel_name VARCHAR(100),
+                    is_active BOOLEAN DEFAULT TRUE,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(guild_id, channel_id)
+                )
+            `);
+
+            await this.pool.query(`
+                CREATE INDEX IF NOT EXISTS idx_discord_links_channels_guild_active
+                ON discord_links_channels(guild_id, is_active)
             `);
 
             // Create indexes for better performance
@@ -163,6 +246,37 @@ class PostgreSQLService {
                 CREATE INDEX IF NOT EXISTS idx_whatsapp_messages_discord_message 
                 ON whatsapp_messages(discord_message_id)
             `);
+
+            // Application settings (key -> JSONB)
+            await this.pool.query(`
+                CREATE TABLE IF NOT EXISTS app_settings (
+                    key TEXT PRIMARY KEY,
+                    value JSONB NOT NULL,
+                    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                )
+            `);
+
+            // Create Feature Flags table
+            await this.pool.query(`
+                CREATE TABLE IF NOT EXISTS feature_flags (
+                    key TEXT PRIMARY KEY,
+                    value BOOLEAN NOT NULL DEFAULT FALSE,
+                    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                )
+            `);
+            // Seed from env on first run if keys absent
+            const seeds = [
+                { key: 'LINK_TRACKER_ENABLED', val: String(process.env.LINK_TRACKER_ENABLED) === 'true' },
+                { key: 'WHATSAPP_ENABLED', val: String(process.env.WHATSAPP_ENABLED) === 'true' },
+                { key: 'WHATSAPP_STORE_MESSAGES', val: String(process.env.WHATSAPP_STORE_MESSAGES) === 'true' }
+            ];
+            for (const s of seeds) {
+                await this.pool.query(
+                    `INSERT INTO feature_flags(key, value) VALUES ($1, $2)
+                     ON CONFLICT (key) DO NOTHING`,
+                    [s.key, s.val]
+                );
+            }
 
             Logger.success('PostgreSQL database schema initialized successfully');
             return true;
@@ -246,6 +360,43 @@ class PostgreSQLService {
     }
 
     // ===== DISCORD LINKS METHODS =====
+    /**
+     * Get active monitored channels for a guild
+     */
+    async getActiveMonitoredChannels(guildId) {
+        try {
+            const res = await this.pool.query(`
+                SELECT channel_id FROM discord_links_channels WHERE guild_id = $1 AND is_active = TRUE
+            `, [guildId]);
+            return res.rows.map(r => r.channel_id);
+        } catch (e) {
+            Logger.error('Error fetching monitored channels:', e);
+            return [];
+        }
+    }
+
+    async upsertMonitoredChannels(guildId, entries) {
+        const client = await this.pool.connect();
+        try {
+            await client.query('BEGIN');
+            for (const e of entries) {
+                await client.query(`
+                    INSERT INTO discord_links_channels (guild_id, channel_id, channel_name, is_active)
+                    VALUES ($1, $2, $3, COALESCE($4, TRUE))
+                    ON CONFLICT (guild_id, channel_id)
+                    DO UPDATE SET channel_name = EXCLUDED.channel_name, is_active = EXCLUDED.is_active, updated_at = CURRENT_TIMESTAMP
+                `, [guildId, e.channel_id, e.channel_name || null, e.is_active !== false]);
+            }
+            await client.query('COMMIT');
+            return true;
+        } catch (e) {
+            await client.query('ROLLBACK');
+            Logger.error('Error upserting monitored channels:', e);
+            return false;
+        } finally {
+            client.release();
+        }
+    }
 
     /**
      * Find a link by message ID and guild ID
@@ -768,6 +919,31 @@ class PostgreSQLService {
         } catch (error) {
             Logger.error('Error cleaning up expired DM mappings:', error);
             return 0;
+        }
+    }
+
+    // ===== APP SETTINGS (ADMIN UI) =====
+    async getSetting(key) {
+        try {
+            const res = await this.pool.query('SELECT value FROM app_settings WHERE key = $1', [key]);
+            return res.rows[0]?.value ?? null;
+        } catch (e) {
+            Logger.error('Error reading app setting:', key, e);
+            return null;
+        }
+    }
+
+    async setSetting(key, value) {
+        try {
+            await this.pool.query(`
+                INSERT INTO app_settings(key, value, updated_at)
+                VALUES($1, $2, CURRENT_TIMESTAMP)
+                ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value, updated_at = CURRENT_TIMESTAMP
+            `, [key, value]);
+            return true;
+        } catch (e) {
+            Logger.error('Error writing app setting:', key, e);
+            return false;
         }
     }
 

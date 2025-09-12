@@ -45,7 +45,7 @@ class HealthCheckService {
 
         // Set CORS headers
         res.setHeader('Access-Control-Allow-Origin', '*');
-        res.setHeader('Access-Control-Allow-Methods', 'GET');
+        res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
         res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
         res.setHeader('Content-Type', 'application/json');
 
@@ -56,25 +56,24 @@ class HealthCheckService {
             return;
         }
 
-        if (req.method !== 'GET') {
-            res.writeHead(405);
-            res.end(JSON.stringify({ error: 'Method not allowed' }));
-            return;
-        }
+        // Allow POST only for admin notify
 
         try {
             switch (path) {
                 case '/health/live':
-                    this.handleLivenessProbe(res);
+                    if (req.method === 'GET') this.handleLivenessProbe(res); else this.methodNotAllowed(res);
                     break;
                 case '/health/ready':
-                    this.handleReadinessProbe(res);
+                    if (req.method === 'GET') this.handleReadinessProbe(res); else this.methodNotAllowed(res);
                     break;
                 case '/health':
-                    this.handleHealthCheck(res);
+                    if (req.method === 'GET') this.handleHealthCheck(res); else this.methodNotAllowed(res);
                     break;
                 case '/whatsapp/chats':
-                    this.handleWhatsAppChats(res);
+                    if (req.method === 'GET') this.handleWhatsAppChats(res); else this.methodNotAllowed(res);
+                    break;
+                case '/admin/notify':
+                    if (req.method === 'POST') this.handleAdminNotify(req, res); else this.methodNotAllowed(res);
                     break;
                 default:
                     res.writeHead(404);
@@ -84,6 +83,157 @@ class HealthCheckService {
             Logger.error('Health check error:', error);
             res.writeHead(500);
             res.end(JSON.stringify({ error: 'Internal server error' }));
+        }
+    }
+
+    methodNotAllowed(res) {
+        res.writeHead(405);
+        res.end(JSON.stringify({ error: 'Method not allowed' }));
+    }
+
+    async handleAdminNotify(req, res) {
+        try {
+            const adminToken = process.env.ADMIN_NOTIFY_TOKEN || (this.config.health && this.config.health.adminToken);
+            const provided = req.headers['x-admin-token'];
+            if (!adminToken || provided !== adminToken) {
+                Logger.warning('Unauthorized /admin/notify attempt');
+                res.writeHead(401);
+                res.end(JSON.stringify({ error: 'unauthorized' }));
+                return;
+            }
+
+            const chunks = [];
+            for await (const chunk of req) chunks.push(chunk);
+            const raw = Buffer.concat(chunks).toString('utf-8');
+            let data = {};
+            try { data = JSON.parse(raw || '{}'); } catch (_) {}
+
+            const type = data.type || 'info';
+            const payload = data.payload || {};
+            let message = '';
+            switch (type) {
+                case 'discord_channels_updated': {
+                    // If feature disabled, just say disabled
+                    try {
+                        const on = await this.postgresService.getFeatureFlag('LINK_TRACKER_ENABLED');
+                        if (!on) {
+                            message = '🔧 LinkTracker is disabled.';
+                            break;
+                        }
+                    } catch (_) {}
+                    const items = Array.isArray(payload.items) ? payload.items : [];
+                    const enabled = items.filter(i => i.is_active !== false);
+                    const disabled = items.filter(i => i.is_active === false);
+                    const fmt = (i) => (i.channel_name ? `#${i.channel_name} (${i.channel_id})` : i.channel_id) + (i.is_active === false ? ' (disabled)' : '');
+                    const lines = [];
+                    if (enabled.length > 0) {
+                        lines.push(`✅ Enabled (${enabled.length}):`);
+                        lines.push(...enabled.map(i => `• ${fmt(i)}`));
+                    }
+                    if (disabled.length > 0) {
+                        if (lines.length > 0) lines.push('');
+                        lines.push(`⛔ Disabled (${disabled.length}):`);
+                        lines.push(...disabled.map(i => `• ${fmt(i)}`));
+                    }
+                    const total = items.length;
+                    message = lines.length > 0
+                      ? `🔔 LinkTracker: Monitored channels updated (${total})\n${lines.join('\n')}`
+                      : '🔔 LinkTracker: Monitored channels updated (0)';
+                    break;
+                }
+                case 'whatsapp_mappings_updated': {
+                    try {
+                        const on = await this.postgresService.getFeatureFlag('WHATSAPP_ENABLED');
+                        if (!on) {
+                            message = '🔧 WhatsApp Proxy is disabled.';
+                            break;
+                        }
+                    } catch (_) {}
+                    const items = Array.isArray(payload.items) ? payload.items : [];
+                    const resolveChannelName = (id) => {
+                        try {
+                            if (!id || !this.discordClient) return null;
+                            const ch = this.discordClient.channels?.cache?.get(id);
+                            if (ch && ch.name) return `#${ch.name}`;
+                            return null;
+                        } catch (_) { return null; }
+                    };
+                    const labels = items.map(i => {
+                        const chanName = i.discord_channel_name || resolveChannelName(i.discord_channel_id);
+                        const chanDisplay = chanName || (i.discord_channel_id ? i.discord_channel_id : 'unset');
+                        return `${i.chat_name || i.chat_id} → ${chanDisplay}${i.is_active === false ? ' (disabled)' : ''}`;
+                    });
+                    message = `🔔 WhatsApp Proxy: Mappings updated (${labels.length}):\n${labels.map(l => `• ${l}`).join('\n')}`;
+                    break;
+                }
+                case 'feature_toggle': {
+                    const name = payload.name || 'UNKNOWN';
+                    if (name === 'AdminChannel' && payload.channelId) {
+                        // Update in-memory admin channel so future messages use it
+                        try { if (this.config && this.config.discord) this.config.discord.adminChannelId = payload.channelId; } catch (_) {}
+                        message = `🔧 Admin notifications channel set to <#${payload.channelId}>`;
+                    } else {
+                        const enabled = payload.enabled ? 'enabled' : 'disabled';
+                        message = `🔧 Feature toggled: ${name} is now ${enabled}${payload.message ? ` — ${payload.message}` : ''}`;
+                    }
+                    break;
+                }
+                case 'service_status': {
+                    const name = payload.name || 'Service';
+                    const enabled = payload.enabled ? 'enabled' : 'disabled';
+                    const status = payload.statusText ? `\n${payload.statusText}` : '';
+                    message = `📈 ${name} status (${enabled}):${status}`;
+                    break;
+                }
+                case 'timezone_updated': {
+                    const tz = payload.tz || 'UTC';
+                    message = `🕒 Time zone set to ${tz}`;
+                    break;
+                }
+                case 'feature_reloaded': {
+                    const name = payload.name || 'UNKNOWN';
+                    const enabled = payload.enabled ? 'enabled' : 'disabled';
+                    message = `🔁 Feature reloaded: ${name} (${enabled})`;
+                    break;
+                }
+                case 'cache_invalidate': {
+                    // Optional: allow publishing cache invalidation via admin notify
+                    try {
+                        const channel = payload.channel;
+                        const guildId = payload.guildId;
+                        if (this.postgresService && this.config && this.config.health) {
+                            // No direct cache here; the bot instance handles pub/sub. Just log.
+                            message = `🧹 Cache invalidate requested for ${channel} (guild ${guildId || 'n/a'})`;
+                        } else {
+                            message = `🧹 Cache invalidate requested`;
+                        }
+                    } catch (_) {
+                        message = `🧹 Cache invalidate requested`;
+                    }
+                    break;
+                }
+                default:
+                    message = payload.message || 'Notification';
+            }
+
+            if (this.discordClient && this.discordClient.isReady()) {
+                const targetChannelId = (payload && payload.channelId) ? payload.channelId : (this.config.discord && this.config.discord.adminChannelId);
+                const ch = targetChannelId ? this.discordClient.channels.cache.get(targetChannelId) : null;
+                if (ch) {
+                    await ch.send(message);
+                    Logger.info('Admin notify sent:', type);
+                    res.writeHead(200);
+                    res.end(JSON.stringify({ ok: true }));
+                    return;
+                }
+            }
+            Logger.warning('Discord not ready or admin channel missing; notification not delivered');
+            res.writeHead(503);
+            res.end(JSON.stringify({ ok: false, error: 'discord_not_ready' }));
+        } catch (e) {
+            Logger.error('Failed to handle admin notify:', e);
+            res.writeHead(500);
+            res.end(JSON.stringify({ error: e.message }));
         }
     }
 
@@ -107,6 +257,44 @@ class HealthCheckService {
                     chats = [];
                 }
             }
+            // augment with live groups
+            try {
+                if (wa && wa.sock && typeof wa.sock.groupFetchAllParticipating === 'function') {
+                    const groups = await wa.sock.groupFetchAllParticipating();
+                    if (groups && typeof groups === 'object') {
+                        for (const [gid, g] of Object.entries(groups)) {
+                            if (!chats.find((c) => c.id === gid)) {
+                                chats.push({ id: gid, name: (g && g.subject) || gid, isGroup: true });
+                            }
+                        }
+                    }
+                }
+            } catch (e) {}
+            // augment with contacts
+            try {
+                if (wa && wa.store && wa.store.contacts) {
+                    const contacts = wa.store.contacts;
+                    const values = typeof contacts.all === 'function' ? contacts.all() : Object.values(contacts);
+                    for (const c of values) {
+                        const id = c.id || c.jid;
+                        if (id && !String(id).endsWith('@g.us')) {
+                            const name = c.name || c.notify || c.vname || id;
+                            if (!chats.find((x) => x.id === id)) {
+                                chats.push({ id, name, isGroup: false });
+                            }
+                        }
+                    }
+                }
+            } catch (e) {}
+            // dedupe
+            const seen = new Set();
+            chats = chats.filter((c) => {
+                if (!c || !c.id) return false;
+                if (seen.has(c.id)) return false;
+                seen.add(c.id);
+                return true;
+            });
+
             res.writeHead(200);
             res.end(JSON.stringify({ chats }, null, 2));
         } catch (error) {

@@ -1,13 +1,13 @@
+// Declare mocks BEFORE requiring the module under test
+jest.mock('../../handlers/reactionHandler');
+jest.mock('../../utils/logger');
+const Logger = require('../../utils/logger');
+
 const CommandHandler = require('../../handlers/commandHandler');
 const { mockConfig, mockDiscordInteraction, mockBaserowLinks, mockDiscordClient } = require('../fixtures/mockData');
 
-// Mock dependencies
-jest.mock('../../handlers/reactionHandler');
-jest.mock('../../utils/logger');
-
 const PostgreSQLService = require('../../services/PostgreSQLService');
 const ReactionHandler = require('../../handlers/reactionHandler');
-const Logger = require('../../utils/logger');
 
 describe('CommandHandler', () => {
   let commandHandler;

@@ -1,5 +1,5 @@
 // Baileys will be imported dynamically since it's an ES module
-const crypto = require('crypto-js');
+// encryption removed; no crypto at-rest for session files
 const fs = require('fs');
 const path = require('path');
 const QRCode = require('qrcode');
@@ -16,7 +16,7 @@ class WhatsAppService {
     this.sessionManager = null;
     this.postgresService = postgresService;
     this.messageHandler = null;
-    this.encryptionKey = config.whatsapp.sessionEncryptionKey;
+    this.encryptionKey = undefined;
     this.baileys = null; // Will store dynamically imported Baileys functions
     this.store = null; // In-memory store for listing chats
     this.consecutiveAuthFailures = 0; // Track consecutive authentication failures
@@ -31,6 +31,7 @@ class WhatsAppService {
     this.adminAlertCooldownMs = 60000; // Cooldown for duplicate admin alerts
     this.lastAdminAlert = { key: null, at: 0 }; // Track last admin alert to de-duplicate
     this.lastIsNewLogin = null; // Cache of isNewLogin from connection updates
+    this.contactNameCache = new Map(); // Cache resolved contact names by JID
     
     Logger.info('WhatsAppService initialized');
   }
@@ -54,7 +55,7 @@ class WhatsAppService {
       // PostgreSQL service is already set in constructor
 
       // Initialize session manager (local-only; no DB session storage)
-      this.sessionManager = new WhatsAppSessionManager(this.encryptionKey, this.discordClient, this.config, this);
+      this.sessionManager = new WhatsAppSessionManager(undefined, this.discordClient, this.config, this);
       
       // Initialize message handler
       this.messageHandler = new WhatsAppMessageHandler(this.postgresService, this.discordClient, this.config, this);
@@ -127,6 +128,63 @@ class WhatsAppService {
     this.sock.ev.on('creds.update', saveCreds);
   }
 
+  /**
+   * Resolve a human-friendly sender name from a message using contacts/group metadata
+   */
+  async getSenderDisplayName(message) {
+    try {
+      const isGroup = typeof message.key.remoteJid === 'string' && message.key.remoteJid.endsWith('@g.us');
+      const jid = message.key.fromMe
+        ? (this.sock && this.sock.user ? this.sock.user.id : message.key.remoteJid)
+        : (isGroup ? (message.key.participant || message.key.remoteJid) : message.key.remoteJid);
+
+      if (!jid) return message.pushName || 'Unknown';
+
+      const cached = this.contactNameCache.get(jid);
+      if (cached) return cached;
+
+      let name = null;
+      try {
+        const contacts = this.store && this.store.contacts;
+        if (contacts) {
+          let c = null;
+          if (typeof contacts.get === 'function') {
+            c = contacts.get(jid) || null;
+          } else if (contacts[jid]) {
+            c = contacts[jid];
+          } else if (typeof contacts.all === 'function') {
+            const all = contacts.all();
+            c = Array.isArray(all) ? all.find(x => x && (x.id === jid || x.jid === jid)) : null;
+          }
+          if (c) {
+            name = c.name || c.notify || c.vname || c.verifiedName || null;
+          }
+        }
+      } catch (_) {}
+
+      if (!name && message.pushName) name = message.pushName;
+
+      if (!name && isGroup && this.sock && typeof this.sock.groupMetadata === 'function') {
+        try {
+          const meta = await this.sock.groupMetadata(message.key.remoteJid);
+          if (meta && Array.isArray(meta.participants)) {
+            const p = meta.participants.find(p => p && p.id === jid);
+            if (p) {
+              name = p.name || p.notify || null;
+            }
+          }
+        } catch (_) {}
+      }
+
+      if (!name) name = String(jid).split('@')[0];
+
+      this.contactNameCache.set(jid, name);
+      return name;
+    } catch (_) {
+      return message.pushName || 'Unknown';
+    }
+  }
+
   async reconnectWithExistingSession() {
     try {
       Logger.info('Reconnecting with existing session (not clearing session files)...');
@@ -190,7 +248,9 @@ class WhatsAppService {
       if (qr) {
         Logger.info('QR code generated for WhatsApp authentication');
         Logger.info('Discord client ready:', !!this.discordClient);
-        Logger.info('Admin channel ID:', this.config.discord.adminChannelId);
+        try {
+          Logger.info('Admin channel ID:', this.config && this.config.discord ? this.config.discord.adminChannelId : null);
+        } catch (_) {}
         Logger.info('QR code length:', qr.length);
         Logger.info('QR code first 50 chars:', qr.substring(0, 50));
         Logger.info('⏳ Waiting for QR code scan - do not disconnect!');
@@ -633,7 +693,7 @@ class WhatsAppService {
       }
 
       // Build summary message
-      let summaryMessage = '📱 **WhatsApp Chat Monitoring Summary**\n\n';
+      let summaryMessage = '📞 **WhatsApp Chat Monitoring Summary**\n\n';
       
       if (activeChats.length === 0) {
         summaryMessage += 'No WhatsApp chats are currently being monitored.';
@@ -1194,7 +1254,7 @@ class WhatsAppMessageHandler {
       
       // Format the message for Discord
       const isFromMe = message.key.fromMe || false;
-      const senderName = isFromMe ? 'You' : (message.pushName || 'Unknown');
+      const senderName = isFromMe ? 'You' : (await this.getSenderDisplayName(message));
       const timezone = process.env.TIMEZONE || 'UTC';
       const timestamp = new Date(message.messageTimestamp * 1000).toLocaleString('en-US', { 
         timeZone: timezone,
@@ -1316,10 +1376,13 @@ class WhatsAppMessageHandler {
           
           Logger.success(`Media message sent to Discord: ${sentMessage.id}`);
           
-          // Store in Baserow if enabled
-          if (this.config.whatsapp.storeMessages) {
-            await this.postgresService.storeWhatsAppMessage(message, sentMessage.id, this.config.discord.guildId);
-          }
+          // Store in DB if enabled (DB-backed flag)
+          try {
+            const storeMessagesFlag = await this.postgresService.getFeatureFlagCached('WHATSAPP_STORE_MESSAGES');
+            if (storeMessagesFlag) {
+              await this.postgresService.storeWhatsAppMessage(message, sentMessage.id, this.config.discord.guildId);
+            }
+          } catch (_) {}
         } catch (mediaError) {
           Logger.error('Failed to process media message:', mediaError);
           
@@ -1336,10 +1399,13 @@ class WhatsAppMessageHandler {
         
         Logger.success(`Text message sent to Discord: ${sentMessage.id}`);
         
-        // Store in Baserow if enabled
-        if (this.config.whatsapp.storeMessages) {
-          await this.postgresService.storeWhatsAppMessage(message, sentMessage.id, this.config.discord.guildId);
-        }
+        // Store in DB if enabled (DB-backed flag)
+        try {
+          const storeMessagesFlag = await this.postgresService.getFeatureFlagCached('WHATSAPP_STORE_MESSAGES');
+          if (storeMessagesFlag) {
+            await this.postgresService.storeWhatsAppMessage(message, sentMessage.id, this.config.discord.guildId);
+          }
+        } catch (_) {}
       }
       
     } catch (error) {

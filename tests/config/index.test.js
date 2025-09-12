@@ -66,7 +66,6 @@ describe('Config', () => {
         },
         whatsapp: {
           enabled: true,
-          sessionEncryptionKey: 'test-encryption-key-32-characters',
           storeMessages: false
         }
       });
@@ -111,54 +110,7 @@ describe('Config', () => {
   });
 
   describe('with missing required environment variables', () => {
-    it('should throw error for missing DISCORD_BOT_TOKEN', () => {
-      process.env.DISCORD_GUILD_ID = '123456789';
-      process.env.DISCORD_CHANNEL_TEST1 = '111111111';
-      process.env.POSTGRES_HOST = 'localhost';
-      process.env.POSTGRES_PORT = '5432';
-      process.env.POSTGRES_USER = 'testuser';
-      process.env.POSTGRES_PASSWORD = 'testpass';
-      process.env.POSTGRES_DATABASE = 'testdb';
-      delete process.env.DISCORD_BOT_TOKEN;
-
-      expect(() => {
-        require('../../config');
-      }).toThrow('Missing required environment variables: DISCORD_BOT_TOKEN');
-    });
-
-    it('should throw error for missing DISCORD_GUILD_ID', () => {
-      process.env.DISCORD_BOT_TOKEN = 'test-discord-token';
-      process.env.DISCORD_CHANNEL_TEST1 = '111111111';
-      process.env.POSTGRES_HOST = 'localhost';
-      process.env.POSTGRES_PORT = '5432';
-      process.env.POSTGRES_USER = 'testuser';
-      process.env.POSTGRES_PASSWORD = 'testpass';
-      process.env.POSTGRES_DATABASE = 'testdb';
-      delete process.env.DISCORD_GUILD_ID;
-
-      expect(() => {
-        require('../../config');
-      }).toThrow('Missing required environment variables: DISCORD_GUILD_ID');
-    });
-
-    it('should throw error for missing Discord channels', () => {
-      process.env.DISCORD_BOT_TOKEN = 'test-discord-token';
-      process.env.DISCORD_GUILD_ID = '123456789';
-      process.env.POSTGRES_HOST = 'localhost';
-      process.env.POSTGRES_PORT = '5432';
-      process.env.POSTGRES_USER = 'testuser';
-      process.env.POSTGRES_PASSWORD = 'testpass';
-      process.env.POSTGRES_DATABASE = 'testdb';
-
-      expect(() => {
-        require('../../config');
-      }).toThrow('No Discord channels configured for monitoring');
-    });
-
     it('should throw error for missing POSTGRES_DATABASE', () => {
-      process.env.DISCORD_BOT_TOKEN = 'test-discord-token';
-      process.env.DISCORD_GUILD_ID = '123456789';
-      process.env.DISCORD_CHANNEL_TEST1 = '111111111';
       process.env.POSTGRES_HOST = 'localhost';
       process.env.POSTGRES_PORT = '5432';
       process.env.POSTGRES_USER = 'testuser';
@@ -171,38 +123,7 @@ describe('Config', () => {
     });
   });
 
-  describe('with empty channel list', () => {
-    it('should throw error for empty Discord channels', () => {
-      process.env.DISCORD_BOT_TOKEN = 'test-discord-token';
-      process.env.DISCORD_GUILD_ID = '123456789';
-      process.env.DISCORD_CHANNEL_EMPTY = '';
-      process.env.POSTGRES_HOST = 'localhost';
-      process.env.POSTGRES_PORT = '5432';
-      process.env.POSTGRES_USER = 'testuser';
-      process.env.POSTGRES_PASSWORD = 'testpass';
-      process.env.POSTGRES_DATABASE = 'testdb';
-
-      expect(() => {
-        require('../../config');
-      }).toThrow('No Discord channels configured for monitoring');
-    });
-
-    it('should throw error for whitespace-only Discord channels', () => {
-      process.env.DISCORD_BOT_TOKEN = 'test-discord-token';
-      process.env.DISCORD_GUILD_ID = '123456789';
-      process.env.DISCORD_CHANNEL_WHITESPACE = '   ';
-      process.env.POSTGRES_HOST = 'localhost';
-      process.env.POSTGRES_PORT = '5432';
-      process.env.POSTGRES_USER = 'testuser';
-      process.env.POSTGRES_PASSWORD = 'testpass';
-      process.env.POSTGRES_DATABASE = 'testdb';
-
-      expect(() => {
-        require('../../config');
-      }).toThrow('No Discord channels configured for monitoring');
-    });
-  });
-
+  // Discord channel env validation removed; managed in DB
   describe('channel ID filtering', () => {
     it('should filter out empty channel IDs', () => {
       process.env.DISCORD_BOT_TOKEN = 'test-discord-token';

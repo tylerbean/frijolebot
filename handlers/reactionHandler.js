@@ -1,4 +1,4 @@
-const Logger = require('../utils/logger');
+function getLogger() { return require('../utils/logger'); }
 
 class ReactionHandler {
     constructor(postgresService, config) {
@@ -8,30 +8,30 @@ class ReactionHandler {
 
     async handleReactionAdd(reaction, user) {
         try {
-            Logger.debug(`REACTION EVENT: ${reaction.emoji.name} by ${user.username} on message ${reaction.message.id}`);
-            Logger.debug(`Message partial: ${reaction.message.partial}, Reaction partial: ${reaction.partial}`);
+            getLogger().debug(`REACTION EVENT: ${reaction.emoji.name} by ${user.username} on message ${reaction.message.id}`);
+            getLogger().debug(`Message partial: ${reaction.message.partial}, Reaction partial: ${reaction.partial}`);
             
             if (user.bot) return;
 
             // Fetch partial messages to get full data for old messages
             if (reaction.partial) {
                 try {
-                    Logger.debug('Fetching partial reaction...');
+                    getLogger().debug('Fetching partial reaction...');
                     await reaction.fetch();
-                    Logger.success('Reaction fetched successfully');
+                    getLogger().success('Reaction fetched successfully');
                 } catch (error) {
-                    Logger.error('Something went wrong when fetching the reaction:', error);
+                    getLogger().error('Something went wrong when fetching the reaction:', error);
                     return;
                 }
             }
 
             if (reaction.message.partial) {
                 try {
-                    Logger.debug('Fetching partial message...');
+                    getLogger().debug('Fetching partial message...');
                     await reaction.message.fetch();
-                    Logger.success('Message fetched successfully');
+                    getLogger().success('Message fetched successfully');
                 } catch (error) {
-                    Logger.error('Something went wrong when fetching the message:', error);
+                    getLogger().error('Something went wrong when fetching the message:', error);
                     return;
                 }
             }
@@ -45,21 +45,21 @@ class ReactionHandler {
             // Handle channel reactions for marking links as read
             if (!this.config.discord.channelsToMonitor.includes(reaction.message.channel.id)) return;
             
-            // Handle admin deletion with X emoji
-            if (reaction.emoji.name === '❌') {
+            // Handle admin deletion with X or trash emojis
+            if (reaction.emoji.name === '❌' || reaction.emoji.name === '🗑️') {
                 await this.handleDeletionReaction(reaction, user);
                 return;
             }
             
             if (reaction.emoji.name !== '✅') return;
             
-            Logger.info(`Channel reaction: ${reaction.emoji.name} by ${user.username} on message ${reaction.message.id}`);
+            getLogger().info(`Channel reaction: ${reaction.emoji.name} by ${user.username} on message ${reaction.message.id}`);
 
             // Mark link as read in PostgreSQL if reactor is different from original poster
             await this.postgresService.updateReadStatusFromReaction(reaction.message.id, reaction.message.guild.id, user.username, true);
             
         } catch (error) {
-            Logger.error('Error handling reaction:', error.message);
+            getLogger().error('Error handling reaction:', error && (error.message || error));
         }
     }
 
@@ -72,7 +72,7 @@ class ReactionHandler {
                 try {
                     await reaction.fetch();
                 } catch (error) {
-                    Logger.error('Something went wrong when fetching the reaction:', error);
+                    getLogger().error('Something went wrong when fetching the reaction:', error);
                     return;
                 }
             }
@@ -81,7 +81,7 @@ class ReactionHandler {
                 try {
                     await reaction.message.fetch();
                 } catch (error) {
-                    Logger.error('Something went wrong when fetching the message:', error);
+                    getLogger().error('Something went wrong when fetching the message:', error);
                     return;
                 }
             }
@@ -96,31 +96,31 @@ class ReactionHandler {
             if (!this.config.discord.channelsToMonitor.includes(reaction.message.channel.id)) return;
             if (reaction.emoji.name !== '✅') return;
 
-            Logger.info(`Reaction removed: ${reaction.emoji.name} by ${user.username} on message ${reaction.message.id}`);
+            getLogger().info(`Reaction removed: ${reaction.emoji.name} by ${user.username} on message ${reaction.message.id}`);
 
             // Mark link as unread in PostgreSQL if reactor is different from original poster
             await this.postgresService.updateReadStatusFromReaction(reaction.message.id, reaction.message.guild.id, user.username, false);
             
         } catch (error) {
-            Logger.error('Error handling reaction removal:', error.message);
+            getLogger().error('Error handling reaction removal:', error && (error.message || error));
         }
     }
 
     async handleDMReaction(reaction, user) {
-        Logger.debug(`DM reaction detected: ${reaction.emoji.name} on message ${reaction.message.id}`);
+        getLogger().debug(`DM reaction detected: ${reaction.emoji.name} on message ${reaction.message.id}`);
         
         // Find the mapping in the database
         const mapping = await this.postgresService.findDMMapping(reaction.message.id, reaction.emoji.name);
         
         if (mapping) {
-            Logger.debug(`Found mapping: ${JSON.stringify(mapping)}`);
+            getLogger().debug(`Found mapping: ${JSON.stringify(mapping)}`);
             
             // Handle checkmark for "mark all as read"
             if (reaction.emoji.name === '✅') {
                 try {
                     const messageIds = JSON.parse(mapping.original_message_id);
                     if (Array.isArray(messageIds)) {
-                        Logger.debug(`Bulk marking ${messageIds.length} links as read`);
+                        getLogger().debug(`Bulk marking ${messageIds.length} links as read`);
                         let successCount = 0;
                         for (const id of messageIds) {
                             // For bulk operations, we need to find the actual guild_id for each message
@@ -129,44 +129,44 @@ class ReactionHandler {
                                 const success = await this.postgresService.updateReadStatus(id, link.guild_id, true);
                                 if (success) successCount++;
                             } else {
-                                Logger.warning(`Could not find link for message ID: ${id}`);
+                                getLogger().warning(`Could not find link for message ID: ${id}`);
                             }
                         }
-                        Logger.success(`Marked ${successCount}/${messageIds.length} links as read via bulk action`);
+                        getLogger().success(`Marked ${successCount}/${messageIds.length} links as read via bulk action`);
                     }
                 } catch (error) {
-                    Logger.error('Error parsing bulk message IDs:', error);
+                    getLogger().error('Error parsing bulk message IDs:', error);
                 }
             } else {
                 // Handle individual numbered reactions
-                Logger.debug(`Attempting to mark single link as read: ${mapping.original_message_id} in guild: ${mapping.guild_id}`);
+                getLogger().debug(`Attempting to mark single link as read: ${mapping.original_message_id} in guild: ${mapping.guild_id}`);
                 const success = await this.postgresService.updateReadStatus(mapping.original_message_id, mapping.guild_id, true);
                 if (success) {
-                    Logger.success(`Marked link as read via DM reaction: ${mapping.original_message_id}`);
+                    getLogger().success(`Marked link as read via DM reaction: ${mapping.original_message_id}`);
                 } else {
-                    Logger.error(`Failed to mark link as read: ${mapping.original_message_id}`);
+                    getLogger().error(`Failed to mark link as read: ${mapping.original_message_id}`);
                 }
             }
         } else {
-            Logger.warning(`No mapping found for DM message ${reaction.message.id} with emoji ${reaction.emoji.name}`);
+            getLogger().warning(`No mapping found for DM message ${reaction.message.id} with emoji ${reaction.emoji.name}`);
         }
     }
 
     async handleDMReactionRemove(reaction, user) {
-        Logger.debug(`DM reaction removal detected: ${reaction.emoji.name} on message ${reaction.message.id}`);
+        getLogger().debug(`DM reaction removal detected: ${reaction.emoji.name} on message ${reaction.message.id}`);
         
         // Find the mapping in the database
         const mapping = await this.postgresService.findDMMapping(reaction.message.id, reaction.emoji.name);
         
         if (mapping) {
-            Logger.debug(`Found mapping for removal: ${JSON.stringify(mapping)}`);
+            getLogger().debug(`Found mapping for removal: ${JSON.stringify(mapping)}`);
             
             // Handle checkmark for "mark all as unread"
             if (reaction.emoji.name === '✅') {
                 try {
                     const messageIds = JSON.parse(mapping.original_message_id);
                     if (Array.isArray(messageIds)) {
-                        Logger.debug(`Bulk marking ${messageIds.length} links as unread`);
+                        getLogger().debug(`Bulk marking ${messageIds.length} links as unread`);
                         let successCount = 0;
                         for (const id of messageIds) {
                             // For bulk operations, we need to find the actual guild_id for each message
@@ -175,73 +175,86 @@ class ReactionHandler {
                                 const success = await this.postgresService.updateReadStatus(id, link.guild_id, false);
                                 if (success) successCount++;
                             } else {
-                                Logger.warning(`Could not find link for message ID: ${id}`);
+                                getLogger().warning(`Could not find link for message ID: ${id}`);
                             }
                         }
-                        Logger.success(`Marked ${successCount}/${messageIds.length} links as unread via bulk removal`);
+                        getLogger().success(`Marked ${successCount}/${messageIds.length} links as unread via bulk removal`);
                     }
                 } catch (error) {
-                    Logger.error('Error parsing bulk message IDs for removal:', error);
+                    getLogger().error('Error parsing bulk message IDs for removal:', error);
                 }
             } else {
                 // Handle individual numbered reactions
-                Logger.debug(`Attempting to mark single link as unread: ${mapping.original_message_id} in guild: ${mapping.guild_id}`);
+                getLogger().debug(`Attempting to mark single link as unread: ${mapping.original_message_id} in guild: ${mapping.guild_id}`);
                 const success = await this.postgresService.updateReadStatus(mapping.original_message_id, mapping.guild_id, false);
                 if (success) {
-                    Logger.success(`Marked link as unread via DM reaction removal: ${mapping.original_message_id}`);
+                    getLogger().success(`Marked link as unread via DM reaction removal: ${mapping.original_message_id}`);
                 } else {
-                    Logger.error(`Failed to mark link as unread: ${mapping.original_message_id}`);
+                    getLogger().error(`Failed to mark link as unread: ${mapping.original_message_id}`);
                 }
             }
         } else {
-            Logger.warning(`No mapping found for DM message ${reaction.message.id} with emoji ${reaction.emoji.name} (removal)`);
+            getLogger().warning(`No mapping found for DM message ${reaction.message.id} with emoji ${reaction.emoji.name} (removal)`);
         }
     }
 
     async handleDeletionReaction(reaction, user) {
-        Logger.info(`Admin deletion request: ${reaction.emoji.name} by ${user.username} on message ${reaction.message.id}`);
+        getLogger().info(`Admin deletion request: ${reaction.emoji.name} by ${user.username} on message ${reaction.message.id}`);
+        if (!reaction.message.guild) {
+            throw new Error('Cannot delete in DM');
+        }
         
         // Check if user has admin permissions
-        const member = await reaction.message.guild.members.fetch(user.id);
-        const hasAdminPerms = await this.isUserAdmin(member);
+        let hasAdminPerms = false;
+        try {
+            const member = await reaction.message.guild.members.fetch(user.id);
+            hasAdminPerms = await this.isUserAdmin(member);
+        } catch (err) {
+            getLogger().error('Error checking admin permissions:', err && (err.message || err));
+        }
         
         // Check if user is the original poster
         const isOriginalPoster = reaction.message.author.id === user.id;
         
-        Logger.debug(`Deletion permission check:`);
-        Logger.debug(`   - User: ${user.username} (${user.id})`);
-        Logger.debug(`   - Message author: ${reaction.message.author.username} (${reaction.message.author.id})`);
-        Logger.debug(`   - Is admin: ${hasAdminPerms}`);
-        Logger.debug(`   - Is original poster: ${isOriginalPoster}`);
+        getLogger().debug(`Deletion permission check:`);
+        getLogger().debug(`   - User: ${user.username} (${user.id})`);
+        getLogger().debug(`   - Message author: ${reaction.message.author.username} (${reaction.message.author.id})`);
+        getLogger().debug(`   - Is admin: ${hasAdminPerms}`);
+        getLogger().debug(`   - Is original poster: ${isOriginalPoster}`);
         
         if (hasAdminPerms) {
-            Logger.success(`Admin ${user.username} can delete any message, proceeding with deletion`);
+            getLogger().success(`Admin ${user.username} can delete any message, proceeding with deletion`);
         } else if (isOriginalPoster) {
-            Logger.success(`Original poster ${user.username} can delete their own message, proceeding with deletion`);
+            getLogger().success(`Original poster ${user.username} can delete their own message, proceeding with deletion`);
         } else {
-            Logger.warning(`User ${user.username} cannot delete message by ${reaction.message.author.username} (not admin, not original poster)`);
+            getLogger().warning(`User ${user.username} cannot delete message by ${reaction.message.author.username} (not admin, not original poster)`);
             return;
         }
         
         if (hasAdminPerms || isOriginalPoster) {
             try {
                 // Delete from PostgreSQL first
-                const dbDeleted = await this.postgresService.deleteLink(reaction.message.id, reaction.message.guild.id);
+                let dbDeleted = false;
+                try {
+                    dbDeleted = await this.postgresService.deleteLink(reaction.message.id, reaction.message.guild.id);
+                } catch (dbErr) {
+                    Logger.error(`Error deleting DB entry: ${dbErr && (dbErr.message || dbErr)}`);
+                }
                 
                 // Delete the Discord message
                 await reaction.message.delete();
                 
                 const deletionType = hasAdminPerms ? 'admin' : 'self';
-                Logger.success(`Deleted Discord message ${reaction.message.id} by ${deletionType} ${user.username}`);
+                getLogger().success(`Deleted Discord message ${reaction.message.id} by ${deletionType} ${user.username}`);
                 
                 if (dbDeleted) {
-                    Logger.success('Successfully deleted message and database entry');
+                    getLogger().success('Successfully deleted message and database entry');
                 } else {
-                    Logger.warning('Message deleted but no database entry found');
+                    getLogger().warning('Message deleted but no database entry found');
                 }
                 
             } catch (error) {
-                Logger.error(`Error deleting message: ${error.message}`);
+                getLogger().error(`Error deleting message: ${error.message || error}`);
             }
         }
     }
@@ -269,15 +282,15 @@ class ReactionHandler {
                        roleName.includes('moderator');
             });
             
-            Logger.debug(`Admin check for ${member.user.username}:`);
-            Logger.debug(`   - Administrator permission: ${member.permissions.has('Administrator')}`);
-            Logger.debug(`   - ManageMessages permission: ${member.permissions.has('ManageMessages')}`);
-            Logger.debug(`   - Admin role found: ${hasAdminRole}`);
-            Logger.debug(`   - User roles: ${member.roles.cache.map(role => role.name).join(', ')}`);
+            getLogger().debug(`Admin check for ${member.user.username}:`);
+            getLogger().debug(`   - Administrator permission: ${member.permissions.has('Administrator')}`);
+            getLogger().debug(`   - ManageMessages permission: ${member.permissions.has('ManageMessages')}`);
+            getLogger().debug(`   - Admin role found: ${hasAdminRole}`);
+            getLogger().debug(`   - User roles: ${member.roles.cache.map(role => role.name).join(', ')}`);
             
             return hasAdminRole;
         } catch (error) {
-            Logger.error('Error checking admin permissions:', error);
+            getLogger().error('Error checking admin permissions:', error);
             return false;
         }
     }

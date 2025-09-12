@@ -33,7 +33,7 @@ describe('WhatsAppService chat summary and display name', () => {
         .mockResolvedValueOnce(null),
     };
 
-    const svc = new WhatsAppService({ discord: {}, whatsapp: { sessionEncryptionKey: 'test-key-32-characters________' } }, null, postgresService);
+    const svc = new WhatsAppService({ discord: {}, whatsapp: {} }, null, postgresService);
 
     await expect(svc.getChatDisplayName('123@g.us')).resolves.toBe('Nice Chat');
     await expect(svc.getChatDisplayName('456@g.us')).resolves.toBe('456@g.us');
@@ -46,7 +46,7 @@ describe('WhatsAppService chat summary and display name', () => {
       'chan-2': 'random',
     });
 
-    const svc = new WhatsAppService({ discord: { adminChannelId }, whatsapp: { sessionEncryptionKey: 'test-key-32-characters________' } }, discord, null);
+    const svc = new WhatsAppService({ discord: { adminChannelId }, whatsapp: {} }, discord, null);
 
     const activeChats = [
       { chat_id: '111@g.us', chat_name: 'Alpha', discord_channel_id: 'chan-1' },
@@ -71,7 +71,7 @@ describe('WhatsAppService chat summary and display name', () => {
     const adminChannelId = 'admin123';
     const discord = createMockDiscord(adminChannelId, {});
 
-    const svc = new WhatsAppService({ discord: { adminChannelId }, whatsapp: { sessionEncryptionKey: 'test-key-32-characters________' } }, discord, null);
+    const svc = new WhatsAppService({ discord: { adminChannelId }, whatsapp: {} }, discord, null);
     await svc.sendChatMonitoringSummary([]);
 
     expect(discord.__send).toHaveBeenCalledTimes(1);

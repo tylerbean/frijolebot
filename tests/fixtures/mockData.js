@@ -70,6 +70,7 @@ const mockConfig = {
   discord: {
     token: 'test-discord-token',
     guildId: '123456789',
+    adminChannelId: '1414626380578029588',
     channelsToMonitor: ['111111111', '222222222']
   },
   baserow: {

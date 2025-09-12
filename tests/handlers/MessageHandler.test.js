@@ -1,11 +1,10 @@
+// Mock dependencies MUST be declared before requiring the module under test
+jest.mock('../../utils/logger');
+const Logger = require('../../utils/logger');
+
 const MessageHandler = require('../../handlers/messageHandler');
 const { mockDiscordMessage } = require('../fixtures/mockData');
-
-// Mock dependencies
-jest.mock('../../utils/logger');
-
 const PostgreSQLService = require('../../services/PostgreSQLService');
-const Logger = require('../../utils/logger');
 
 describe('MessageHandler', () => {
   let messageHandler;
@@ -14,11 +13,12 @@ describe('MessageHandler', () => {
 
   beforeEach(() => {
     mockPostgresService = {
-      storeLink: jest.fn()
+      storeLink: jest.fn(),
+      getFeatureFlagCached: jest.fn().mockResolvedValue(true)
     };
 
     messageHandler = new MessageHandler(mockPostgresService);
-    mockMessage = { ...mockDiscordMessage };
+    mockMessage = { ...mockDiscordMessage, react: jest.fn().mockResolvedValue() };
     jest.clearAllMocks();
   });
 

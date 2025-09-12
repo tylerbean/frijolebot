@@ -4,23 +4,32 @@ import { Switch, Listbox } from '@headlessui/react';
 import { useReactTable, getCoreRowModel, createColumnHelper, flexRender } from '@tanstack/react-table';
 
 type Channel = { id: string; name: string };
-type RowData = { key: string; name: string; id: string };
+type RowData = { key?: string; name: string; id: string; isActive?: boolean };
+type Monitored = { guild_id: string; channel_id: string; channel_name?: string; is_active?: boolean };
 
 export default function LinkTrackerPanel() {
-  const [enabled, setEnabled] = useState(true);
+  const [enabled, setEnabled] = useState<boolean | null>(null);
   const [channels, setChannels] = useState<Channel[]>([]);
   const [rows, setRows] = useState<RowData[]>([]);
   const [pending, setPending] = useState(false);
 
   useEffect(() => {
     (async () => {
-      const [cfg, ch] = await Promise.all([
-        fetch('/api/config', { cache: 'no-store' }).then(r => r.json()),
-        fetch('/api/discord/channels', { cache: 'no-store' }).then(r => r.json()),
-      ]);
-      setEnabled(String(cfg.LINK_TRACKER_ENABLED) === 'true');
-      setRows((cfg.monitoredChannels ?? []).map((e: any) => ({ key: e.key, id: e.id, name: e.id })));
+      // Read discord enable flag to show monitored channels if enabled
+      try {
+        const s = await fetch('/api/admin/settings', { cache: 'no-store' }).then(r => r.json());
+        setEnabled(!!s?.discord?.enabled);
+      } catch { setEnabled(false); }
+      const ch = await fetch('/api/discord/channels', { cache: 'no-store' }).then(r => r.json());
       setChannels(ch.channels ?? []);
+      const db = await fetch('/api/discord/monitored-channels', { cache: 'no-store' }).then(r => r.json());
+      const mapped: RowData[] = (db.channels ?? []).map((m: Monitored) => ({
+        key: `${m.guild_id}:${m.channel_id}`,
+        id: m.channel_id,
+        name: m.channel_name || m.channel_id,
+        isActive: m.is_active !== false
+      }));
+      setRows(mapped);
     })();
   }, []);
 
@@ -35,17 +44,12 @@ export default function LinkTrackerPanel() {
     columnHelper.display({
       id: 'name',
       header: 'Channel',
-      cell: ({ row }) => row.original.name
-    }),
-    columnHelper.display({
-      id: 'selector',
-      header: 'Select',
       cell: ({ row }) => (
         <Listbox value={row.original.id} onChange={(v) => updateRow(row.index, v)}>
           <Listbox.Button className="rounded border px-3 py-2 w-64 text-left">
             {channels.find(c => c.id === row.original.id)?.name ?? 'Select a channel'}
           </Listbox.Button>
-          <Listbox.Options className="mt-1 max-h-60 w-64 overflow-auto rounded border bg-white shadow">
+          <Listbox.Options className="absolute z-50 mt-1 max-h-60 w-64 overflow-auto rounded border bg-white shadow">
             {channels.map(c => (
               <Listbox.Option key={c.id} value={c.id} className="px-3 py-2 ui-active:bg-indigo-50 cursor-pointer">
                 {c.name}
@@ -53,6 +57,19 @@ export default function LinkTrackerPanel() {
             ))}
           </Listbox.Options>
         </Listbox>
+      )
+    }),
+    columnHelper.display({
+      id: 'enabled',
+      header: 'Enabled',
+      cell: ({ row }) => (
+        <Switch
+          checked={!!row.original.isActive}
+          onChange={(v) => updateActive(row.index, v)}
+          className={`${row.original.isActive ? 'bg-indigo-600' : 'bg-gray-300'} relative inline-flex h-5 w-10 items-center rounded-full`}
+        >
+          <span className={`${row.original.isActive ? 'translate-x-5' : 'translate-x-1'} inline-block h-4 w-4 transform rounded-full bg-white transition`} />
+        </Switch>
       )
     }),
     columnHelper.display({
@@ -75,16 +92,17 @@ export default function LinkTrackerPanel() {
   function updateRow(index: number, id: string) {
     setRows(prev => prev.map((r, i) => i === index ? ({ ...r, id, name: channels.find(c => c.id === id)?.name ?? id }) : r));
   }
+  function updateActive(index: number, active: boolean) {
+    setRows(prev => prev.map((r, i) => i === index ? ({ ...r, isActive: active }) : r));
+  }
 
   async function save() {
     setPending(true);
     try {
-      const payload = {
-        LINK_TRACKER_ENABLED: enabled,
-        monitoredChannels: rows.filter(r => r.id).map(r => ({ key: r.key, id: r.id }))
-      };
-      const res = await fetch('/api/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-      if (!res.ok) throw new Error('Failed to save');
+      // Feature toggle handled in Admin; only persist monitored channels here
+      const toSave = rows.filter(r => r.id).map(r => ({ channel_id: r.id, channel_name: channels.find(c => c.id === r.id)?.name || r.name, is_active: r.isActive ?? true }));
+      const res2 = await fetch('/api/discord/monitored-channels', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ channels: toSave }) });
+      if (!res2.ok) throw new Error('Failed to save monitored channels');
     } finally {
       setPending(false);
     }
@@ -92,21 +110,7 @@ export default function LinkTrackerPanel() {
 
   return (
     <div className="space-y-4">
-      <div className="rounded border bg-white p-4 shadow-sm">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="font-medium">Enable LinkTracker</h2>
-            <p className="text-sm text-gray-600">Gate URL tracking via feature flag.</p>
-          </div>
-          <Switch
-            checked={enabled}
-            onChange={setEnabled}
-            className={`${enabled ? 'bg-indigo-600' : 'bg-gray-300'} relative inline-flex h-6 w-11 items-center rounded-full`}
-          >
-            <span className={`${enabled ? 'translate-x-6' : 'translate-x-1'} inline-block h-4 w-4 transform rounded-full bg-white transition`} />
-          </Switch>
-        </div>
-      </div>
+      {/* Feature toggle moved to Admin page */}
 
       <div className="rounded border bg-white p-4 shadow-sm">
         <div className="mb-3 flex items-center justify-between">

@@ -27,8 +27,8 @@ jest.mock('@whiskeysockets/baileys', () => ({
 
 jest.mock('crypto-js', () => ({
     AES: {
-        encrypt: jest.fn().mockReturnValue('encrypted_data'),
-        decrypt: jest.fn().mockReturnValue('decrypted_data')
+        encrypt: jest.fn(),
+        decrypt: jest.fn()
     }
 }));
 
@@ -60,7 +60,7 @@ describe('WhatsApp Integration Tests', () => {
                 whatsappMessagesTableId: '46'
             },
             whatsapp: {
-                sessionEncryptionKey: 'test-encryption-key-32-characters',
+                
                 storeMessages: true,
                 enabled: true
             },
@@ -114,7 +114,7 @@ describe('WhatsApp Integration Tests', () => {
             whatsappService = new WhatsAppService(mockConfig, mockDiscordClient);
             
             expect(whatsappService.config.whatsapp.enabled).toBe(true);
-            expect(whatsappService.config.whatsapp.sessionEncryptionKey).toBe('test-encryption-key-32-characters');
+            expect(whatsappService.config.whatsapp).toHaveProperty('enabled');
             expect(whatsappService.config.whatsapp.storeMessages).toBe(true);
         });
 

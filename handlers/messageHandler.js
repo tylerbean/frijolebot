@@ -8,10 +8,11 @@ class MessageHandler {
 
     async handleMessage(message) {
         try {
-            // Feature flag: LinkTracker gate
-            if (process.env.LINK_TRACKER_ENABLED === 'false') {
-                return;
-            }
+            // Feature flag: LinkTracker gate (DB-backed)
+            const enabled = this.postgresService && typeof this.postgresService.getFeatureFlagCached === 'function'
+                ? await this.postgresService.getFeatureFlagCached('LINK_TRACKER_ENABLED')
+                : true;
+            if (!enabled) return;
             // Skip bot messages
             if (message.author.bot) return;
             
@@ -23,7 +24,11 @@ class MessageHandler {
             
             // Store links in PostgreSQL with guild_id
             for (const url of urls) {
-                await this.postgresService.storeLink(message, url, message.guild.id);
+                try {
+                    await this.postgresService.storeLink(message, url, message.guild.id);
+                } catch (e) {
+                    Logger.error('Error processing message:', e);
+                }
             }
             
             // Add green checkmark reaction to the message

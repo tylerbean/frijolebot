@@ -1,9 +1,7 @@
 require('dotenv').config();
 
-// Validate required environment variables
+// Validate required environment variables (runtime settings from DB; only DB/health/admin token remain env-driven)
 const requiredEnvVars = [
-    'DISCORD_BOT_TOKEN',
-    'DISCORD_GUILD_ID',
     'POSTGRES_HOST',
     'POSTGRES_PORT',
     'POSTGRES_USER',
@@ -11,10 +9,8 @@ const requiredEnvVars = [
     'POSTGRES_DATABASE'
 ];
 
-// WhatsApp environment variables (required if WhatsApp is enabled)
-const whatsappEnvVars = [
-    'WHATSAPP_SESSION_ENCRYPTION_KEY'
-];
+// WhatsApp environment variables (no required vars at this time)
+const whatsappEnvVars = [];
 
 // Check for missing required environment variables
 const missingVars = requiredEnvVars.filter(varName => !process.env[varName]);
@@ -22,27 +18,21 @@ if (missingVars.length > 0) {
     throw new Error(`Missing required environment variables: ${missingVars.join(', ')}`);
 }
 
-// Check for missing WhatsApp environment variables if WhatsApp is enabled
-if (process.env.WHATSAPP_ENABLED === 'true') {
-    const missingWhatsappVars = whatsappEnvVars.filter(varName => !process.env[varName]);
-    if (missingWhatsappVars.length > 0) {
-        throw new Error(`WhatsApp is enabled but missing required environment variables: ${missingWhatsappVars.join(', ')}`);
-    }
-}
+// No required WhatsApp vars enforced
 
-// Get all channel IDs from environment variables
+// Collect channel IDs from environment variables (for tests and legacy support)
 const channelIds = Object.keys(process.env)
-    .filter(key => key.startsWith('DISCORD_CHANNEL_'))
-    .map(key => process.env[key])
-    .filter(id => id && id.trim() !== '' && id !== 'your_channel_id_here');
-// Allow starting with zero channels; control panel can configure these at runtime by updating .env
+    .filter((key) => key.startsWith('DISCORD_CHANNEL_'))
+    .filter((key) => key !== 'DISCORD_ADMIN_CHANNEL')
+    .map((key) => String(process.env[key]).trim())
+    .filter((val) => Boolean(val));
 
 module.exports = {
     discord: {
         token: process.env.DISCORD_BOT_TOKEN,
         guildId: process.env.DISCORD_GUILD_ID,
         channelsToMonitor: channelIds,
-        adminChannelId: process.env.DISCORD_ADMIN_CHANNEL
+        adminChannelId: undefined
     },
     postgres: {
         host: process.env.POSTGRES_HOST,
@@ -56,17 +46,17 @@ module.exports = {
         nodeEnv: process.env.NODE_ENV || 'development'
     },
     health: {
-        port: process.env.HEALTH_CHECK_PORT || 3000
+        port: process.env.HEALTH_CHECK_PORT || 3000,
+        adminToken: process.env.ADMIN_NOTIFY_TOKEN
     },
     rateLimit: {
-        windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 60000, // 1 minute
-        maxRequests: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 5, // 5 requests per window
-        cleanupInterval: parseInt(process.env.RATE_LIMIT_CLEANUP_INTERVAL) || 300000, // 5 minutes
-        enabled: process.env.RATE_LIMIT_ENABLED !== 'false' // Default to enabled
+        windowMs: 60000,
+        maxRequests: 5,
+        cleanupInterval: 300000,
+        enabled: true
     },
     whatsapp: {
-        sessionEncryptionKey: process.env.WHATSAPP_SESSION_ENCRYPTION_KEY,
-        storeMessages: process.env.WHATSAPP_STORE_MESSAGES === 'true',
-        enabled: process.env.WHATSAPP_ENABLED === 'true'
+        storeMessages: String(process.env.WHATSAPP_STORE_MESSAGES || '').toLowerCase() === 'true',
+        enabled: String(process.env.WHATSAPP_ENABLED || '').toLowerCase() === 'true'
     }
 };

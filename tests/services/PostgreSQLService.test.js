@@ -1,6 +1,5 @@
-const Logger = require('../../utils/logger');
-
 jest.mock('../../utils/logger');
+const Logger = require('../../utils/logger');
 
 // Mock pg Pool
 const mockQuery = jest.fn();

@@ -1,15 +1,15 @@
-const CommandHandler = require('../../handlers/commandHandler');
-const { mockConfig, mockDiscordInteraction } = require('../fixtures/mockData');
-
-// Mock dependencies
+// Mocks must be declared before requiring CommandHandler
 jest.mock('../../handlers/reactionHandler');
 jest.mock('../../utils/logger');
 jest.mock('../../utils/rateLimiter');
+const Logger = require('../../utils/logger');
+const RateLimiter = require('../../utils/rateLimiter');
+
+const CommandHandler = require('../../handlers/commandHandler');
+const { mockConfig, mockDiscordInteraction } = require('../fixtures/mockData');
 
 const PostgreSQLService = require('../../services/PostgreSQLService');
 const ReactionHandler = require('../../handlers/reactionHandler');
-const Logger = require('../../utils/logger');
-const RateLimiter = require('../../utils/rateLimiter');
 
 describe('CommandHandler - Rate Limiting', () => {
   let commandHandler;

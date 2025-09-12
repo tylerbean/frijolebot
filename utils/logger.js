@@ -1,4 +1,6 @@
-const isDevelopment = process.env.NODE_ENV === 'development';
+const logLevel = (process.env.LOG_LEVEL || '').toLowerCase();
+const debugLogs = String(process.env.DEBUG_LOGS || '').toLowerCase();
+const isVerboseLogging = logLevel === 'debug' || debugLogs === 'true' || process.env.NODE_ENV === 'development';
 
 class Logger {
     static getTimestamp() {
@@ -11,19 +13,19 @@ class Logger {
     }
 
     static info(message, ...args) {
-        if (isDevelopment) {
+        if (isVerboseLogging) {
             console.log(...this.formatMessage('ℹ️ ', message, ...args));
         }
     }
 
     static success(message, ...args) {
-        if (isDevelopment) {
+        if (isVerboseLogging) {
             console.log(...this.formatMessage('✅', message, ...args));
         }
     }
 
     static warning(message, ...args) {
-        if (isDevelopment) {
+        if (isVerboseLogging) {
             console.log(...this.formatMessage('⚠️ ', message, ...args));
         }
     }
@@ -34,7 +36,7 @@ class Logger {
     }
 
     static debug(message, ...args) {
-        if (isDevelopment) {
+        if (isVerboseLogging) {
             console.log(...this.formatMessage('🔍', message, ...args));
         }
     }

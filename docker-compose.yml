@@ -1,36 +1,68 @@
 version: '3.8'
 
 services:
-  discord-bot:
+  app:
     build: .
-    container_name: frijolebot
+    container_name: frijole-app
     restart: unless-stopped
     env_file:
       - .env
     volumes:
       - ./logs:/app/logs
-      # WhatsApp session persistence
       - whatsapp-sessions:/app/auth_info_baileys
     environment:
       - NODE_ENV=production
-      # Health check configuration
-      - HEALTH_CHECK_PORT=3000
-      # Rate limiting configuration (optional overrides)
-      # - RATE_LIMIT_ENABLED=true
-      # - RATE_LIMIT_WINDOW_MS=60000
-      # - RATE_LIMIT_MAX_REQUESTS=5
-      # - RATE_LIMIT_CLEANUP_INTERVAL=300000
+      - LOG_LEVEL=debug
+      - HEALTH_CHECK_PORT=3001
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - REDIS_URL=redis://redis:6379/1
+      - WHATSAPP_BOT_HEALTH_URL=http://localhost:3000/api/bot/whatsapp/chats
+      - PORT=3000
     ports:
-      # Expose health check port for monitoring
       - "3000:3000"
     networks:
       - bot-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/health/live"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 10s
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: frijole-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-frijolebot}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-frijolebot}
+      - POSTGRES_DB=${POSTGRES_DATABASE:-frijolebot}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - bot-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    container_name: frijole-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    networks:
+      - bot-network
 
 networks:
   bot-network:
@@ -39,3 +71,6 @@ networks:
 volumes:
   logs:
   whatsapp-sessions:
+  pgdata:
+
+

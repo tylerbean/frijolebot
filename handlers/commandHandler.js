@@ -9,14 +9,15 @@ class CommandHandler {
         this.config = config;
         this.discordClient = discordClient;
         
-        // Initialize rate limiter if enabled
-        if (config.rateLimit.enabled) {
+        // Initialize rate limiter from admin settings (fallback to defaults)
+        const rl = config.rateLimit || { enabled: true, windowMs: 60000, maxRequests: 5, cleanupInterval: 300000 };
+        if (rl.enabled) {
             this.rateLimiter = new RateLimiter({
-                windowMs: config.rateLimit.windowMs,
-                maxRequests: config.rateLimit.maxRequests,
-                cleanupInterval: config.rateLimit.cleanupInterval
+                windowMs: rl.windowMs,
+                maxRequests: rl.maxRequests,
+                cleanupInterval: rl.cleanupInterval
             });
-            Logger.info(`Rate limiting enabled: ${config.rateLimit.maxRequests} requests per ${config.rateLimit.windowMs}ms`);
+            Logger.info(`Rate limiting enabled: ${rl.maxRequests} requests per ${rl.windowMs}ms`);
         } else {
             this.rateLimiter = null;
             Logger.info('Rate limiting disabled');
@@ -175,7 +176,7 @@ class CommandHandler {
                 return;
             }
             
-            const unreadLinks = await this.postgresService.getUnreadLinksForUser(username, guildId, interaction.user.id, this.discordClient);
+            const unreadLinks = await this.postgresService.getUnreadLinksForUser(username, guildId, interaction.user.id, this.discordClient) || [];
             
             if (unreadLinks.length === 0) {
                 await interaction.editReply({

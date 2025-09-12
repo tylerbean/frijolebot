@@ -56,7 +56,6 @@ WhatsApp Message → WhatsAppService → MessageHandler → Discord Channel
 
 #### Required (when WhatsApp is enabled)
 - `WHATSAPP_ENABLED`: Set to `true` to enable WhatsApp integration
-- `WHATSAPP_SESSION_ENCRYPTION_KEY`: 32-character encryption key for session data
 - `BASEROW_WHATSAPP_SESSIONS_TABLE_ID`: Baserow table ID for session storage
 - `BASEROW_WHATSAPP_CHATS_TABLE_ID`: Baserow table ID for chat configuration
 - `BASEROW_WHATSAPP_MESSAGES_TABLE_ID`: Baserow table ID for message storage
@@ -102,7 +101,6 @@ WhatsApp Message → WhatsAppService → MessageHandler → Discord Channel
 1. **Enable WhatsApp Integration**:
    ```bash
    export WHATSAPP_ENABLED=true
-   export WHATSAPP_SESSION_ENCRYPTION_KEY="your-32-character-encryption-key"
    ```
 
 2. **Configure Baserow Tables**:
@@ -170,7 +168,7 @@ The bot provides extensive debug logging for WhatsApp operations:
 
 ## Security Considerations
 
-1. **Session Data**: Session data is encrypted before storage in Baserow
+1. **Session Data**: Session data is stored locally via Baileys multi-file auth
 2. **QR Codes**: QR codes are sent only to designated admin channels
 3. **Message Content**: Message content is stored in Baserow (if enabled) - consider data retention policies
 4. **Access Control**: Only configured chats are monitored and forwarded

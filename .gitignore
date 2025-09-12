@@ -152,6 +152,7 @@ Thumbs.db
 config.json
 bot-data/
 temp/
+run.lock
 
 # WhatsApp Web session data
 .wwebjs_auth/

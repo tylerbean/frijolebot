@@ -1,10 +1,10 @@
-# Discord Link Bot
+# FrijoleBot (Discord Link Bot + WhatsApp + Admin UI)
 
 [![Docker Build](https://github.com/tylerbean/frijolebot/actions/workflows/docker-build.yml/badge.svg)](https://github.com/tylerbean/frijolebot/actions/workflows/docker-build.yml)
 [![Tests](https://github.com/tylerbean/frijolebot/actions/workflows/test.yml/badge.svg)](https://github.com/tylerbean/frijolebot/actions/workflows/test.yml)
 [![Security Scan](https://github.com/tylerbean/frijolebot/actions/workflows/security.yml/badge.svg)](https://github.com/tylerbean/frijolebot/actions/workflows/security.yml)
 
-A Discord bot that monitors specified channels for messages containing URLs and stores them in a PostgreSQL database for link management and read status tracking. Now includes WhatsApp integration for forwarding messages from WhatsApp chats to Discord channels.
+Unified app image that serves a Next.js Admin UI at `/`, proxies bot endpoints at `/api/bot/*`, and exposes health checks at `/health`. Configuration (Discord, WhatsApp, Rate Limiting, Caching, Timezone) is managed in PostgreSQL via the Admin UI.
 
 ## Features
 
@@ -51,41 +51,14 @@ npm install
    - Add Reactions
    - Manage Messages
 
-### 3. Configure Environment Variables
+### 3. Environment Variables
 
-Create a `.env` file with the following variables:
+Use `.env.example` as a template. Most runtime settings are stored in the database and configured via the Admin UI. Locally, you typically set:
 
-```bash
-# Discord Bot Configuration
-DISCORD_BOT_TOKEN=your_bot_token_here
-DISCORD_GUILD_ID=your_guild_id_here
-DISCORD_CHANNELS_TO_MONITOR=channel_id_1,channel_id_2,channel_id_3
-DISCORD_ADMIN_CHANNEL=your_admin_channel_id_here
-
-# PostgreSQL Database Configuration
-POSTGRES_HOST=your_postgres_host
-POSTGRES_PORT=5432
-POSTGRES_USER=your_postgres_user
-POSTGRES_PASSWORD=your_postgres_password
-POSTGRES_DATABASE=your_postgres_database
-POSTGRES_SSL=false
-
-# WhatsApp Integration (Optional)
-WHATSAPP_ENABLED=true
-WHATSAPP_SESSION_ENCRYPTION_KEY=your_32_character_encryption_key_here
-WHATSAPP_STORE_MESSAGES=true
-
-# Health Check Configuration
-HEALTH_CHECK_PORT=3000
-
-# Rate Limiting Configuration
-RATE_LIMIT_ENABLED=true
-RATE_LIMIT_WINDOW_MS=60000
-RATE_LIMIT_MAX_REQUESTS=5
-RATE_LIMIT_CLEANUP_INTERVAL=300000
-
-# Application Configuration
-NODE_ENV=production
+```
+POSTGRES_HOST, POSTGRES_PORT, POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DATABASE
+REDIS_URL
+ADMIN_NOTIFY_TOKEN
 ```
 
 ### 4. Add Bot to Server
@@ -115,17 +88,13 @@ If you want to enable WhatsApp integration:
    - Add entries to the `whatsapp_chats` table for chats you want to monitor
    - Use the correct WhatsApp chat ID format (see documentation below)
 
-3. **Generate encryption key**:
-   ```bash
-   # Generate a 32-character encryption key
-   openssl rand -hex 16
-   ```
+3. 
 
 4. **Set up admin channel**:
    - Create a Discord channel for QR codes and admin notifications
    - Add the channel ID to `DISCORD_ADMIN_CHANNEL`
 
-### 6. Run the Bot
+### 6. Run the App
 
 ```bash
 # Production
@@ -134,8 +103,8 @@ npm start
 # Development (with auto-restart)
 npm run dev
 
-# Docker
-docker-compose up -d
+# Docker (unified app + postgres + redis)
+docker compose up -d
 
 # Docker (manual build)
 docker build -t frijolebot .
@@ -191,21 +160,16 @@ Use the included scripts to set up and test Docker Hub integration:
 ./scripts/test-dockerhub.sh
 ```
 
-## Docker Deployment
+## Docker Deployment (Single image)
 
-The bot includes Docker support for easy deployment:
+The unified app image includes the Next.js Admin UI, Discord/WhatsApp services, and gateway on a single port:
 
 ### Docker Compose (Recommended)
 
 ```bash
-# Start the bot
-docker-compose up -d
-
-# View logs
-docker-compose logs -f
-
-# Stop the bot
-docker-compose down
+docker compose up -d
+docker compose logs -f
+docker compose down
 ```
 
 ### Docker Features
@@ -218,15 +182,13 @@ docker-compose down
 - **WhatsApp Support**: Lightweight Baileys integration (no browser required)
 - **Session Persistence**: WhatsApp session data persisted via Docker volumes
 
-### Docker Environment Variables
+### Single Port Gateway
 
-All environment variables from the `.env` file are automatically loaded. You can also override them in `docker-compose.yml`:
+- UI: `/`
+- Bot API: `/api/bot/*`
+- Health: `/health`, `/health/live`, `/health/ready`
 
-```yaml
-environment:
-  - RATE_LIMIT_MAX_REQUESTS=10
-  - HEALTH_CHECK_PORT=3000
-```
+Reverse proxies (NGINX/Traefik) can route on path prefixes to the single service.
 
 ## Adding More Channels
 
@@ -264,9 +226,9 @@ The bot stores the following data in PostgreSQL for each detected URL:
 }
 ```
 
-## Health Monitoring
+## Health Monitoring and Gateway
 
-The bot includes built-in health check endpoints for monitoring and Kubernetes deployments:
+The gateway serves UI at `/`, bot admin/health at `/health` and `/api/bot/*`. Useful for reverse proxies in front.
 
 ### Health Check Endpoints
 
@@ -400,7 +362,6 @@ The bot includes comprehensive WhatsApp integration for forwarding messages from
 1. **Enable WhatsApp Integration**:
    ```bash
    WHATSAPP_ENABLED=true
-   WHATSAPP_SESSION_ENCRYPTION_KEY=your_32_character_key_here
    ```
 
 2. **Configure WhatsApp Tables (PostgreSQL)**:

@@ -1,4 +1,9 @@
-const Logger = require('./logger');
+// Resolve logger at call time so Jest mocks apply even if this module
+// was required before jest.mock('utils/logger') in tests
+function getLogger() {
+    // eslint-disable-next-line global-require
+    return require('./logger');
+}
 
 class RateLimiter {
     constructor(options = {}) {
@@ -36,7 +41,7 @@ class RateLimiter {
         // Check if user has exceeded the limit
         if (userData.count >= this.maxRequests) {
             const retryAfter = Math.ceil((userData.resetTime - now) / 1000);
-            Logger.warning(`Rate limit exceeded for user ${userId} on command ${commandName}. Retry after ${retryAfter}s`);
+            getLogger().warning(`Rate limit exceeded for user ${userId} on command ${commandName}. Retry after ${retryAfter}s`);
             
             return {
                 allowed: false,
@@ -53,7 +58,7 @@ class RateLimiter {
         const remaining = this.maxRequests - userData.count;
         const retryAfter = Math.ceil((userData.resetTime - now) / 1000);
         
-        Logger.debug(`Rate limit check for user ${userId} on command ${commandName}: ${remaining} remaining`);
+        getLogger().debug(`Rate limit check for user ${userId} on command ${commandName}: ${remaining} remaining`);
         
         return {
             allowed: true,
@@ -100,7 +105,7 @@ class RateLimiter {
     resetLimit(userId, commandName = 'global') {
         const key = `${userId}:${commandName}`;
         this.requests.delete(key);
-        Logger.info(`Rate limit reset for user ${userId} on command ${commandName}`);
+        getLogger().info(`Rate limit reset for user ${userId} on command ${commandName}`);
     }
 
     /**
@@ -116,7 +121,7 @@ class RateLimiter {
         }
         
         keysToDelete.forEach(key => this.requests.delete(key));
-        Logger.info(`All rate limits reset for user ${userId}`);
+        getLogger().info(`All rate limits reset for user ${userId}`);
     }
 
     /**
@@ -160,7 +165,7 @@ class RateLimiter {
             this.cleanup();
         }, this.cleanupInterval);
         
-        Logger.info(`Rate limiter cleanup started (interval: ${this.cleanupInterval}ms)`);
+        getLogger().info(`Rate limiter cleanup started (interval: ${this.cleanupInterval}ms)`);
     }
 
     /**
@@ -170,7 +175,7 @@ class RateLimiter {
         if (this.cleanupTimer) {
             clearInterval(this.cleanupTimer);
             this.cleanupTimer = null;
-            Logger.info('Rate limiter cleanup stopped');
+            getLogger().info('Rate limiter cleanup stopped');
         }
     }
 
@@ -190,7 +195,7 @@ class RateLimiter {
         keysToDelete.forEach(key => this.requests.delete(key));
         
         if (keysToDelete.length > 0) {
-            Logger.debug(`Rate limiter cleanup: removed ${keysToDelete.length} expired entries`);
+            getLogger().debug(`Rate limiter cleanup: removed ${keysToDelete.length} expired entries`);
         }
     }
 
@@ -217,7 +222,7 @@ class RateLimiter {
     destroy() {
         this.stopCleanup();
         this.requests.clear();
-        Logger.info('Rate limiter destroyed');
+        getLogger().info('Rate limiter destroyed');
     }
 }
 
