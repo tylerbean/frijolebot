@@ -1,6 +1,6 @@
 export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
-import { getPool } from '../../../../../lib/db';
+import { getPool } from '../../../../lib/db';
 import { z } from 'zod';
 import { decryptFromB64 } from '../../../../lib/crypto';
 
@@ -69,7 +69,7 @@ export async function POST(req: Request) {
 
         // Cache the channels for 10 minutes
         try {
-          const { getRedis } = await import('../../../../lib/redis');
+          const { getRedis } = await import('../../../lib/redis');
           const redis = await getRedis();
           if (redis) {
             await redis.set(`discord:guild:${guildId}:channels`, JSON.stringify({ channels }), { EX: 600 });

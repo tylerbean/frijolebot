@@ -1,6 +1,6 @@
 export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
-import { getPool } from '../../../../lib/db';
+import { getPool } from '../../../lib/db';
 import { z } from 'zod';
 
 async function tableHasColumn(client: any, table: string, column: string): Promise<boolean> {
