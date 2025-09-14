@@ -1,7 +1,9 @@
-export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { getPool } from '@/lib/db';
+import { getRedis } from '@/lib/redis';
 import { z } from 'zod';
+
+export const revalidate = 300; // Cache for 5 minutes
 
 async function tableHasColumn(client: any, table: string, column: string): Promise<boolean> {
   const res = await client.query(
@@ -12,6 +14,18 @@ async function tableHasColumn(client: any, table: string, column: string): Promi
 }
 
 export async function GET() {
+  // Try cache first
+  const cacheKey = 'whatsapp:chats';
+  try {
+    const c = await getRedis();
+    if (c) {
+      const hit = await c.get(cacheKey);
+      if (hit) {
+        return NextResponse.json(JSON.parse(hit));
+      }
+    }
+  } catch (_) {}
+
   const pool = getPool();
   const client = await pool.connect();
   try {
@@ -26,7 +40,16 @@ export async function GET() {
       is_active: r.is_active,
       chat_name: hasChatName ? r.chat_name ?? null : null
     }));
-    return NextResponse.json({ chats: rows });
+
+    const payload = { chats: rows };
+
+    // Cache the result
+    try {
+      const c = await getRedis();
+      if (c) await c.set(cacheKey, JSON.stringify(payload), { EX: 300 });
+    } catch (_) {}
+
+    return NextResponse.json(payload);
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 500 });
   } finally {
@@ -80,6 +103,13 @@ export async function PUT(request: Request) {
         await client.query(`DELETE FROM whatsapp_chats WHERE chat_id NOT IN (${placeholders})`, ids);
       }
       await client.query('COMMIT');
+
+      // Invalidate cache after successful update
+      try {
+        const c = await getRedis();
+        if (c) await c.del('whatsapp:chats');
+      } catch (_) {}
+
     } catch (err) {
       await client.query('ROLLBACK');
       throw err;

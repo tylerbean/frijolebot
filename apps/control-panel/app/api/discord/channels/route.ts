@@ -1,23 +1,53 @@
-export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { getPool } from '@/lib/db';
 import { getRedis } from '@/lib/redis';
 import { decryptFromB64 } from '@/lib/crypto';
 
+export const revalidate = 300; // Cache for 5 minutes
+
 export async function GET() {
-  // Read from app_settings.discord
+  // Read from app_settings.discord with caching
   let token: string | undefined;
   let guildId: string | undefined;
+
+  const settingsCacheKey = 'discord:settings';
+
+  // Try to get settings from cache first
   try {
-    const pool = getPool();
-    const res = await pool.query('SELECT value FROM app_settings WHERE key = $1', ['discord']);
-    const discord = res.rows[0]?.value || {};
-    token = discord.token;
-    if (!token && discord.tokenEnc) {
-      try { token = decryptFromB64(discord.tokenEnc); } catch (_) {}
+    const c = await getRedis();
+    if (c) {
+      const cachedSettings = await c.get(settingsCacheKey);
+      if (cachedSettings) {
+        const discord = JSON.parse(cachedSettings);
+        token = discord.token;
+        if (!token && discord.tokenEnc) {
+          try { token = decryptFromB64(discord.tokenEnc); } catch (_) {}
+        }
+        guildId = discord.guildId;
+      }
     }
-    guildId = discord.guildId;
   } catch (_) {}
+
+  // If not in cache, fetch from database
+  if (!token || !guildId) {
+    try {
+      const pool = getPool();
+      const res = await pool.query('SELECT value FROM app_settings WHERE key = $1', ['discord']);
+      const discord = res.rows[0]?.value || {};
+      token = discord.token;
+      if (!token && discord.tokenEnc) {
+        try { token = decryptFromB64(discord.tokenEnc); } catch (_) {}
+      }
+      guildId = discord.guildId;
+
+      // Cache the settings for 1 hour
+      try {
+        const c = await getRedis();
+        if (c) await c.set(settingsCacheKey, JSON.stringify(discord), { EX: 3600 });
+      } catch (_) {}
+    } catch (_) {}
+  }
+
   if (!token || !guildId) {
     return NextResponse.json({ error: 'Missing Discord env vars' }, { status: 500 });
   }

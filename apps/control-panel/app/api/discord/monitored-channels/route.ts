@@ -1,4 +1,3 @@
-export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { getPool } from '@/lib/db';
 import { publish } from '@/lib/redis';
@@ -7,6 +6,8 @@ import fs from 'fs';
 import path from 'path';
 import { loadEnv } from '@/lib/env';
 import { z } from 'zod';
+
+export const revalidate = 60; // Cache for 1 minute
 async function getGuildId(): Promise<string | undefined> {
   // Prefer DB-backed guildId, fallback to env for legacy compatibility
   try {

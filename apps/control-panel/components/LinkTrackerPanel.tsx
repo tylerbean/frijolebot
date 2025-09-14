@@ -2,41 +2,41 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Switch, Listbox } from '@headlessui/react';
 import { useReactTable, getCoreRowModel, createColumnHelper, flexRender } from '@tanstack/react-table';
+import { useDiscordChannels, useDiscordMonitoredChannels, useAdminSettings } from '../hooks/useApi';
 
 type Channel = { id: string; name: string };
 type RowData = { key?: string; name: string; id: string; isActive?: boolean };
 type Monitored = { guild_id: string; channel_id: string; channel_name?: string; is_active?: boolean };
 
 export default function LinkTrackerPanel() {
-  const [enabled, setEnabled] = useState<boolean | null>(null);
-  const [channels, setChannels] = useState<Channel[]>([]);
   const [rows, setRows] = useState<RowData[]>([]);
   const [pending, setPending] = useState(false);
 
+  // Use SWR hooks for data fetching with caching
+  const { channels, isLoading: channelsLoading } = useDiscordChannels();
+  const { channels: monitoredChannels, isLoading: monitoredLoading, mutate: mutateMonitored } = useDiscordMonitoredChannels();
+  const { settings, isLoading: settingsLoading } = useAdminSettings();
+
+  const enabled = settings?.discord?.enabled || false;
+  const isLoading = channelsLoading || monitoredLoading || settingsLoading;
+
+  // Update rows when monitored channels data changes
   useEffect(() => {
-    (async () => {
-      // Read discord enable flag to show monitored channels if enabled
-      try {
-        const s = await fetch('/api/admin/settings', { cache: 'no-store' }).then(r => r.json());
-        setEnabled(!!s?.discord?.enabled);
-      } catch { setEnabled(false); }
-      const ch = await fetch('/api/discord/channels', { cache: 'no-store' }).then(r => r.json());
-      setChannels(ch.channels ?? []);
-      const db = await fetch('/api/discord/monitored-channels', { cache: 'no-store' }).then(r => r.json());
-      const mapped: RowData[] = (db.channels ?? []).map((m: Monitored) => ({
+    if (!monitoredLoading && monitoredChannels) {
+      const mapped: RowData[] = monitoredChannels.map((m: Monitored) => ({
         key: `${m.guild_id}:${m.channel_id}`,
         id: m.channel_id,
         name: m.channel_name || m.channel_id,
         isActive: m.is_active !== false
       }));
       setRows(mapped);
-    })();
-  }, []);
+    }
+  }, [monitoredChannels, monitoredLoading]);
 
   // Hydrate names for existing IDs when channels are loaded
   useEffect(() => {
     if (channels.length === 0) return;
-    setRows(prev => prev.map(r => ({ ...r, name: channels.find(c => c.id === r.id)?.name ?? r.name })));
+    setRows(prev => prev.map(r => ({ ...r, name: channels.find((c: Channel) => c.id === r.id)?.name ?? r.name })));
   }, [channels]);
 
   const columnHelper = createColumnHelper<RowData>();
@@ -48,10 +48,10 @@ export default function LinkTrackerPanel() {
         <div className="relative inline-block">
           <Listbox value={row.original.id} onChange={(v) => updateRow(row.index, v)}>
             <Listbox.Button className="rounded border px-3 py-2 w-64 text-left">
-              {channels.find(c => c.id === row.original.id)?.name ?? 'Select a channel'}
+              {channels.find((c: Channel) => c.id === row.original.id)?.name ?? 'Select a channel'}
             </Listbox.Button>
             <Listbox.Options className="absolute z-50 mt-1 max-h-60 w-64 overflow-auto rounded border bg-white shadow">
-              {channels.map(c => (
+              {channels.map((c: Channel) => (
                 <Listbox.Option key={c.id} value={c.id} className="px-3 py-2 ui-active:bg-indigo-50 cursor-pointer">
                   {c.name}
                 </Listbox.Option>
@@ -92,7 +92,7 @@ export default function LinkTrackerPanel() {
     setRows(prev => prev.filter((_, i) => i !== index));
   }
   function updateRow(index: number, id: string) {
-    setRows(prev => prev.map((r, i) => i === index ? ({ ...r, id, name: channels.find(c => c.id === id)?.name ?? id }) : r));
+    setRows(prev => prev.map((r, i) => i === index ? ({ ...r, id, name: channels.find((c: Channel) => c.id === id)?.name ?? id }) : r));
   }
   function updateActive(index: number, active: boolean) {
     setRows(prev => prev.map((r, i) => i === index ? ({ ...r, isActive: active }) : r));
@@ -109,9 +109,13 @@ export default function LinkTrackerPanel() {
     setPending(true);
     try {
       // Feature toggle handled in Admin; only persist monitored channels here
-      const toSave = rows.filter(r => r.id).map(r => ({ channel_id: r.id, channel_name: channels.find(c => c.id === r.id)?.name || r.name, is_active: r.isActive ?? true }));
+      const toSave = rows.filter(r => r.id).map(r => ({ channel_id: r.id, channel_name: channels.find((c: Channel) => c.id === r.id)?.name || r.name, is_active: r.isActive ?? true }));
       const res2 = await fetch('/api/discord/monitored-channels', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ channels: toSave }) });
       if (!res2.ok) throw new Error('Failed to save monitored channels');
+
+      // Revalidate the cache after successful save
+      mutateMonitored();
+
       addToast('Monitored channels saved', 'success');
     } finally {
       setPending(false);
@@ -132,6 +136,11 @@ export default function LinkTrackerPanel() {
       {/* Feature toggle moved to Admin page */}
 
       <div className="rounded border bg-white p-4 shadow-sm">
+        {isLoading && (
+          <div className="flex items-center justify-center py-8">
+            <div className="text-gray-500">Loading channels...</div>
+          </div>
+        )}
         <div className="mb-3 flex items-center justify-between">
           <h3 className="font-medium">Monitored Channels</h3>
           <button onClick={addRow} className="rounded bg-indigo-600 px-3 py-2 text-white">Add</button>

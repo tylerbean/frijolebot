@@ -2,41 +2,34 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Switch, Listbox, Portal } from '@headlessui/react';
 import { useReactTable, getCoreRowModel, createColumnHelper, flexRender } from '@tanstack/react-table';
+import { useDiscordChannels, useWhatsAppChats, useWhatsAppAvailableChats } from '../hooks/useApi';
 
 type Channel = { id: string; name: string };
 type WAChat = { chat_id: string; chat_name: string };
 type Mapping = { chatId: string; chatName: string; channelId?: string; isActive?: boolean };
 
 export default function WhatsAppProxyPanel() {
-  const [enabled, setEnabled] = useState<boolean | null>(null);
-  const [store, setStore] = useState<boolean | null>(null);
-  const [channels, setChannels] = useState<Channel[]>([]);
   const [rows, setRows] = useState<Mapping[]>([]);
-  const [availableChats, setAvailableChats] = useState<WAChat[]>([]);
   const [pending, setPending] = useState(false);
 
+  // Use SWR hooks for data fetching with caching
+  const { channels, isLoading: channelsLoading } = useDiscordChannels();
+  const { chats, isLoading: chatsLoading, mutate: mutateChats } = useWhatsAppChats();
+  const { chats: availableChats, isLoading: availableChatsLoading } = useWhatsAppAvailableChats();
+
+  const isLoading = channelsLoading || chatsLoading || availableChatsLoading;
+
+  // Update rows when chats data changes
   useEffect(() => {
-    (async () => {
-      // Settings now configured via Admin page; do not read feature flags here
-      setEnabled(null);
-      setStore(null);
-
-      try {
-        const ch = await fetch('/api/discord/channels', { cache: 'no-store' }).then(r => r.json());
-        setChannels(ch.channels ?? []);
-      } catch (_) { setChannels([]); }
-
-      try {
-        const chats = await fetch('/api/whatsapp/chats', { cache: 'no-store' }).then(r => r.json());
-        setRows((chats.chats ?? []).map((c: any) => ({ chatId: c.chat_id, chatName: c.chat_name ?? c.chat_id, channelId: c.discord_channel_id ?? '', isActive: c.is_active })));
-      } catch (_) { setRows([]); }
-
-      try {
-        const avail = await fetch('/api/whatsapp/available-chats', { cache: 'no-store' }).then(r => r.json());
-        setAvailableChats((avail.chats ?? []).map((c: any) => ({ chat_id: c.chat_id, chat_name: c.chat_name })));
-      } catch (_) { setAvailableChats([]); }
-    })();
-  }, []);
+    if (!chatsLoading && chats) {
+      setRows(chats.map((c: any) => ({
+        chatId: c.chat_id,
+        chatName: c.chat_name ?? c.chat_id,
+        channelId: c.discord_channel_id ?? '',
+        isActive: c.is_active
+      })));
+    }
+  }, [chats, chatsLoading]);
 
   const columnHelper = createColumnHelper<Mapping>();
   const columns = useMemo(() => [
@@ -85,7 +78,7 @@ export default function WhatsAppProxyPanel() {
                       <Portal>
                         <div className="headless-portal" aria-label="dropdown-portal" style={style}>
                           <Listbox.Options static className="w-full overflow-auto rounded border bg-white shadow" style={{ maxHeight: (style as any)?.maxHeight ?? 240 }}>
-                            {availableChats.map(c => (
+                            {availableChats.map((c: WAChat) => (
                               <Listbox.Option key={c.chat_id} value={c.chat_id} className="px-3 py-2 ui-active:bg-indigo-50 cursor-pointer">
                                 {c.chat_name}
                               </Listbox.Option>
@@ -169,13 +162,13 @@ export default function WhatsAppProxyPanel() {
           return (
             <>
               <Listbox.Button ref={btnRef} className="rounded border px-3 py-2 w-64 text-left">
-                {channels.find(c => c.id === (props.value ?? ''))?.name ?? 'Select a channel'}
+                {channels.find((c: Channel) => c.id === (props.value ?? ''))?.name ?? 'Select a channel'}
               </Listbox.Button>
               {open && rect && (
                 <Portal>
                   <div className="headless-portal" aria-label="dropdown-portal" style={style}>
                     <Listbox.Options static className="w-full overflow-auto rounded border bg-white shadow" style={{ maxHeight: (style as any)?.maxHeight ?? 240 }}>
-                      {channels.map(c => (
+                      {channels.map((c: Channel) => (
                         <Listbox.Option key={c.id} value={c.id} className="px-3 py-2 ui-active:bg-indigo-50 cursor-pointer">
                           {c.name}
                         </Listbox.Option>
@@ -204,7 +197,7 @@ export default function WhatsAppProxyPanel() {
     setRows(prev => prev.map((r, i) => i === index ? ({ ...r, isActive: active }) : r));
   }
   function updateChat(index: number, chatId: string) {
-    const found = availableChats.find(c => c.chat_id === chatId);
+    const found = availableChats.find((c: WAChat) => c.chat_id === chatId);
     setRows(prev => prev.map((r, i) => i === index ? ({ ...r, chatId, chatName: found?.chat_name ?? chatId }) : r));
   }
 
@@ -222,6 +215,10 @@ export default function WhatsAppProxyPanel() {
       const chatsPayload = { chats: rows.filter(r => r.chatId).map(r => ({ chat_id: r.chatId, discord_channel_id: r.channelId || null, is_active: r.isActive ?? true, chat_name: r.chatName || null })) };
       const res2 = await fetch('/api/whatsapp/chats', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(chatsPayload) });
       if (!res2.ok) throw new Error('Failed to save chats');
+
+      // Revalidate the cache after successful save
+      mutateChats();
+
       addToast('WhatsApp mappings saved', 'success');
     } finally {
       setPending(false);
@@ -242,6 +239,11 @@ export default function WhatsAppProxyPanel() {
       {/* Feature toggles moved to Admin page */}
 
       <div className="rounded border bg-white p-4 shadow-sm" style={{ overflow: 'visible', position: 'relative' }}>
+        {isLoading && (
+          <div className="flex items-center justify-center py-8">
+            <div className="text-gray-500">Loading chats and channels...</div>
+          </div>
+        )}
         <div className="mb-3 flex items-center justify-between">
           <h3 className="font-medium">Conversation / Channel Mapping</h3>
           <button onClick={addRow} className="rounded bg-indigo-600 px-3 py-2 text-white">Add Mapping</button>
