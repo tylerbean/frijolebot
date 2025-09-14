@@ -1,6 +1,6 @@
 export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
-import { getPool } from '../../../lib/db';
+import { getPool } from '../../lib/db';
 import { z } from 'zod';
 import { encryptToB64, decryptFromB64, maskToken } from '../../lib/crypto';
 

@@ -1,6 +1,6 @@
 export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
-import { getPool } from '../../../lib/db';
+import { getPool } from '../../lib/db';
 
 // Bridge to the bot: fetch live chats from the bot's health endpoint
 export async function GET() {

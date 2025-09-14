@@ -1,8 +1,8 @@
 export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
-import { getPool } from '../../../../lib/db';
+import { getPool } from '../../../lib/db';
 import { z } from 'zod';
-import { decryptFromB64 } from '../../../../lib/crypto';
+import { decryptFromB64 } from '../../../lib/crypto';
 
 async function getDiscordSettings() {
   const pool = getPool();

@@ -1,6 +1,6 @@
 export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
-import { getPool } from '../../../../lib/db';
+import { getPool } from '../../../lib/db';
 import { createClient } from 'redis';
 import { z } from 'zod';
 import { URL } from 'url';
