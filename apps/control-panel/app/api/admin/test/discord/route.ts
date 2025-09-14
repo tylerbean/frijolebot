@@ -53,7 +53,34 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, status: res.status }, { status: res.status });
     }
     const guild = await res.json();
-    return NextResponse.json({ ok: true, guild: { id: guild.id, name: guild.name } });
+    
+    // Prefetch and cache channels for the admin dropdown
+    try {
+      const channelsRes = await fetch(`https://discord.com/api/v10/guilds/${guildId}/channels`, {
+        headers: { Authorization: `Bot ${token}` },
+        cache: 'no-store'
+      });
+      if (channelsRes.ok) {
+        const channelsData = await channelsRes.json();
+        const channels = (Array.isArray(channelsData) ? channelsData : [])
+          .filter((c: any) => c && typeof c === 'object' && c.type === 0)
+          .map((c: any) => ({ id: c.id as string, name: c.name as string }));
+        
+        // Cache channels in Redis if available
+        try {
+          const { getRedis } = await import('../../../../lib/redis');
+          const redis = await getRedis();
+          if (redis) {
+            const cacheKey = `discord:guild:${guildId}:channels`;
+            await redis.set(cacheKey, JSON.stringify({ channels }), { EX: 600 });
+          }
+        } catch (_) {}
+      }
+    } catch (_) {
+      // Ignore channel prefetch errors - test connection should still succeed
+    }
+    
+    return NextResponse.json({ ok: true, guild: { id: guild.id, name: guild.name }, channelsPrefetched: true });
   } catch (e: any) {
     // Final fallback to bot
     try {

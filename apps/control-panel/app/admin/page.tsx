@@ -218,7 +218,7 @@ export default function AdminPage() {
                 setDiscordTest(res.ok ? (guildName ? `Connected to ${guildName}` : 'Connected') : `Failed: ${res.error || res.status}`);
                 addToast(res.ok ? 'Discord connected' : `Discord test failed: ${res.error || res.status}`, res.ok ? 'success' : 'error');
                 if (res.ok) {
-                  // Reload channels from server-decrypted endpoint
+                  // Reload channels from server-decrypted endpoint (prefetched by test endpoint)
                   const list = await fetch('/api/discord/channels', { cache: 'no-store' }).then(r=>r.json()).catch(()=>({ channels: [] }));
                   if (Array.isArray(list?.channels)) setDiscordChannels(list.channels);
                 }
