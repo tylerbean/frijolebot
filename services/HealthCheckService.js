@@ -324,8 +324,8 @@ class HealthCheckService {
      */
     async handleReadinessProbe(res) {
         const checks = await this.performHealthChecks();
-        const discordRequired = !!(this.config && this.config.discord && this.config.discord.enabled);
-        const isReady = (discordRequired ? checks.discord.connected : true) && checks.postgres.connected && this.isReady;
+        // Kubernetes readiness should not depend on Discord
+        const isReady = checks.postgres.connected && this.isReady;
 
         const status = {
             status: isReady ? 'ready' : 'not_ready',
@@ -343,7 +343,7 @@ class HealthCheckService {
      */
     async handleHealthCheck(res) {
         const checks = await this.performHealthChecks();
-        const discordRequired = !!(this.config && this.config.discord && this.config.discord.enabled);
+        const discordRequired = await this.isDiscordRequired();
         const isHealthy = (discordRequired ? checks.discord.connected : true) && checks.postgres.connected && this.isReady;
         const uptime = Date.now() - this.startTime;
 
@@ -374,6 +374,25 @@ class HealthCheckService {
         };
 
         return checks;
+    }
+
+    /**
+     * Determine whether Discord should be considered required for health
+     * Preference order: explicit config flag, then DB feature flag, fallback false
+     */
+    async isDiscordRequired() {
+        try {
+            if (this.config && this.config.discord && typeof this.config.discord.enabled === 'boolean') {
+                return !!this.config.discord.enabled;
+            }
+        } catch (_) {}
+        try {
+            if (this.postgresService && typeof this.postgresService.getFeatureFlag === 'function') {
+                const on = await this.postgresService.getFeatureFlag('LINK_TRACKER_ENABLED');
+                return !!on;
+            }
+        } catch (_) {}
+        return false;
     }
 
     /**
