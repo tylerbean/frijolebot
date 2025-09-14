@@ -217,7 +217,18 @@ class HealthCheckService {
             }
 
             if (this.discordClient && this.discordClient.isReady()) {
-                const targetChannelId = (payload && payload.channelId) ? payload.channelId : (this.config.discord && this.config.discord.adminChannelId);
+                // Get admin channel ID dynamically from database (fallback to config)
+                let targetChannelId = payload && payload.channelId;
+                if (!targetChannelId) {
+                    try {
+                        const discordSettings = await this.postgresService.pool.query('SELECT value FROM app_settings WHERE key = $1', ['discord']);
+                        const discord = discordSettings.rows[0]?.value || {};
+                        targetChannelId = discord.adminChannelId;
+                    } catch (dbError) {
+                        Logger.warning('Failed to fetch admin channel from database, using config fallback:', dbError.message);
+                        targetChannelId = this.config.discord && this.config.discord.adminChannelId;
+                    }
+                }
                 const ch = targetChannelId ? this.discordClient.channels.cache.get(targetChannelId) : null;
                 if (ch) {
                     await ch.send(message);

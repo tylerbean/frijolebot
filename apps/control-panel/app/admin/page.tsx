@@ -215,12 +215,19 @@ export default function AdminPage() {
               try {
                 const res = await fetch('/api/admin/test/discord', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: s.discord.token, guildId: s.discord.guildId })}).then(r=>r.json());
                 const guildName = res?.guild?.name || res?.guilds?.[0]?.name;
-                setDiscordTest(res.ok ? (guildName ? `Connected to ${guildName}` : 'Connected') : `Failed: ${res.error || res.status}`);
+                const successMsg = guildName ? `Connected to ${guildName}` : 'Connected';
+                const channelsMsg = res.channelsPreloaded ? ` (${res.channelsPreloaded} channels loaded)` : '';
+                setDiscordTest(res.ok ? successMsg + channelsMsg : `Failed: ${res.error || res.status}`);
                 addToast(res.ok ? 'Discord connected' : `Discord test failed: ${res.error || res.status}`, res.ok ? 'success' : 'error');
                 if (res.ok) {
-                  // Reload channels from server-decrypted endpoint (prefetched by test endpoint)
+                  // Force reload channels to make dropdown immediately available
                   const list = await fetch('/api/discord/channels', { cache: 'no-store' }).then(r=>r.json()).catch(()=>({ channels: [] }));
-                  if (Array.isArray(list?.channels)) setDiscordChannels(list.channels);
+                  if (Array.isArray(list?.channels)) {
+                    setDiscordChannels(list.channels);
+                    if (list.channels.length > 0) {
+                      addToast(`${list.channels.length} channels available for admin selection`, 'success');
+                    }
+                  }
                 }
               } catch (e: any) {
                 addToast(`Discord test failed: ${e.message || e}`, 'error');

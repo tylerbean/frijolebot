@@ -53,34 +53,44 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, status: res.status }, { status: res.status });
     }
     const guild = await res.json();
-    
-    // Prefetch and cache channels for the admin dropdown
+
+    // Prefetch and cache channels for immediate dropdown availability
     try {
       const channelsRes = await fetch(`https://discord.com/api/v10/guilds/${guildId}/channels`, {
         headers: { Authorization: `Bot ${token}` },
-        cache: 'no-store'
+        cache: 'no-store',
       });
+
       if (channelsRes.ok) {
         const channelsData = await channelsRes.json();
         const channels = (Array.isArray(channelsData) ? channelsData : [])
           .filter((c: any) => c && typeof c === 'object' && c.type === 0)
-          .map((c: any) => ({ id: c.id as string, name: c.name as string }));
-        
-        // Cache channels in Redis if available
+          .map((c: any) => ({ id: String(c.id), name: String(c.name) }));
+
+        // Cache the channels for 10 minutes
         try {
           const { getRedis } = await import('../../../../lib/redis');
           const redis = await getRedis();
           if (redis) {
-            const cacheKey = `discord:guild:${guildId}:channels`;
-            await redis.set(cacheKey, JSON.stringify({ channels }), { EX: 600 });
+            await redis.set(`discord:guild:${guildId}:channels`, JSON.stringify({ channels }), { EX: 600 });
           }
-        } catch (_) {}
+        } catch (cacheError) {
+          // Cache failure is not critical for test success
+          console.warn('Failed to cache channels:', cacheError);
+        }
+
+        return NextResponse.json({
+          ok: true,
+          guild: { id: guild.id, name: guild.name },
+          channelsPreloaded: channels.length
+        });
       }
-    } catch (_) {
-      // Ignore channel prefetch errors - test connection should still succeed
+    } catch (channelError) {
+      // Channel fetch failure should not fail the test
+      console.warn('Failed to prefetch channels during test:', channelError);
     }
-    
-    return NextResponse.json({ ok: true, guild: { id: guild.id, name: guild.name }, channelsPrefetched: true });
+
+    return NextResponse.json({ ok: true, guild: { id: guild.id, name: guild.name } });
   } catch (e: any) {
     // Final fallback to bot
     try {
