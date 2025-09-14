@@ -1,11 +1,11 @@
 export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
-import { getPool } from '../../lib/db';
-import { publish } from '../../lib/redis';
-import { getRedis } from '../../lib/redis';
+import { getPool } from '@/lib/db';
+import { publish } from '@/lib/redis';
+import { getRedis } from '@/lib/redis';
 import fs from 'fs';
 import path from 'path';
-import { loadEnv } from '../../../../app/lib/env';
+import { loadEnv } from '@/lib/env';
 import { z } from 'zod';
 async function getGuildId(): Promise<string | undefined> {
   // Prefer DB-backed guildId, fallback to env for legacy compatibility

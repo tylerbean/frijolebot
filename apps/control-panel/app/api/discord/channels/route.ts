@@ -1,8 +1,8 @@
 export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
-import { getPool } from '../../lib/db';
-import { getRedis } from '../../lib/redis';
-import { decryptFromB64 } from '../../lib/crypto';
+import { getPool } from '@/lib/db';
+import { getRedis } from '@/lib/redis';
+import { decryptFromB64 } from '@/lib/crypto';
 
 export async function GET() {
   // Read from app_settings.discord

@@ -1,6 +1,6 @@
 export const dynamic = 'force-dynamic';
 import Link from 'next/link';
-import { getPool } from './lib/db';
+import { getPool } from '@/lib/db';
 
 async function getFlags() {
   try {

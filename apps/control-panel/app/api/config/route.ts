@@ -47,7 +47,7 @@ function serializeEnv(obj: Record<string, string>, original: string): string {
 
 export async function GET() {
   try {
-    const { getPool } = await import('../../lib/db');
+    const { getPool } = await import('@/lib/db');
     const pool = getPool();
     const flags = await pool.query(`SELECT key, value FROM feature_flags WHERE key IN ('LINK_TRACKER_ENABLED','WHATSAPP_ENABLED','WHATSAPP_STORE_MESSAGES')`);
     const asMap: Record<string, boolean> = Object.fromEntries(flags.rows.map((r: any) => [r.key, !!r.value]));
