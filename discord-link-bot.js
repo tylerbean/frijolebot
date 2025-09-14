@@ -146,6 +146,21 @@ async function registerCommands(token) {
     }
 }
 
+// Helper to resolve a channel by ID with fetch fallback
+async function resolveChannelById(id) {
+    if (!id) return null;
+    try {
+        const cached = client.channels.cache.get(id);
+        if (cached) return cached;
+        try {
+            const fetched = await client.channels.fetch(id);
+            return fetched || null;
+        } catch (e) {
+            return null;
+        }
+    } catch (_) { return null; }
+}
+
 // Bot ready event
 async function executeReadyLogic() {
     Logger.info('Ready event fired!');
@@ -164,7 +179,7 @@ async function executeReadyLogic() {
     }
     // Send admin startup message and channel summary
     try {
-        const adminChannel = client.channels.cache.get(settings.discord.adminChannelId);
+        const adminChannel = await resolveChannelById(settings.discord.adminChannelId);
         if (adminChannel) {
             await adminChannel.send(`🟢 **FrijoleBot started** on ${new Date().toISOString()}`);
             const lines = channelsToMonitor.map(id => {
@@ -547,6 +562,41 @@ setInterval(async () => {
       };
     }
     healthCheckService.start();
+    // Background poll: attempt to pick up Discord settings later without restart
+    const pollIntervalMs = 30_000;
+    let pollHandle = null;
+    const tryStartDiscord = async () => {
+      try {
+        const res = await postgresService.pool.query('SELECT value FROM app_settings WHERE key = $1', ['discord']);
+        const v = res.rows[0]?.value || {};
+        if (v && v.guildId && (v.tokenEnc || v.token)) {
+          // Decrypt token if needed
+          let token = v.token;
+          try {
+            if (v.tokenEnc) {
+              const { decryptFromB64 } = require('./services/tokenCrypto');
+              token = decryptFromB64(v.tokenEnc);
+            }
+          } catch (e) {
+            Logger.error('Failed to decrypt Discord token during auto-start:', e && (e.message || e));
+            return;
+          }
+          // Update settings and config, then login
+          settings.discord = { enabled: !!v.enabled, guildId: v.guildId, adminChannelId: v.adminChannelId, token };
+          try { config.discord.guildId = v.guildId; } catch (_) {}
+          try { config.discord.adminChannelId = v.adminChannelId; } catch (_) {}
+          Logger.startup('Discord settings detected post-start; logging in...');
+          await client.login(token);
+          if (pollHandle) {
+            clearInterval(pollHandle);
+            pollHandle = null;
+          }
+        }
+      } catch (e) {
+        // ignore transient errors
+      }
+    };
+    pollHandle = setInterval(tryStartDiscord, pollIntervalMs);
     // Keep process alive
     setInterval(() => {}, 1000);
     return;
