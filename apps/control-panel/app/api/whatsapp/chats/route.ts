@@ -1,6 +1,7 @@
 export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { getPool } from '../../../../lib/db';
+import { z } from 'zod';
 
 async function tableHasColumn(client: any, table: string, column: string): Promise<boolean> {
   const res = await client.query(
@@ -36,15 +37,21 @@ export async function GET() {
 export async function PUT(request: Request) {
   try {
     const body = await request.json();
-    if (!Array.isArray(body.chats)) {
-      return NextResponse.json({ error: 'Invalid payload' }, { status: 400 });
-    }
+    const chatSchema = z.object({
+      chat_id: z.string().min(5).max(128),
+      discord_channel_id: z.string().min(0).max(64).nullable().optional(),
+      is_active: z.boolean().optional(),
+      chat_name: z.string().min(1).max(255).nullable().optional()
+    }).strict();
+    const schema = z.object({ chats: z.array(chatSchema).max(1000) }).strict();
+    const parsed = schema.safeParse(body);
+    if (!parsed.success) return NextResponse.json({ error: 'invalid_payload' }, { status: 422 });
     const pool = getPool();
     const client = await pool.connect();
     try {
       const hasChatName = await tableHasColumn(client, 'whatsapp_chats', 'chat_name');
       await client.query('BEGIN');
-      for (const row of body.chats) {
+      for (const row of parsed.data.chats) {
         if (!row || typeof row.chat_id !== 'string') continue;
         if (hasChatName) {
           await client.query(
@@ -65,7 +72,7 @@ export async function PUT(request: Request) {
         }
       }
       // Deletion-on-save: remove any rows not present in submitted list
-      const ids = body.chats.filter((r: any) => r && typeof r.chat_id === 'string').map((r: any) => r.chat_id);
+      const ids = parsed.data.chats.filter((r: any) => r && typeof r.chat_id === 'string').map((r: any) => r.chat_id);
       if (ids.length === 0) {
         await client.query(`DELETE FROM whatsapp_chats`);
       } else {
@@ -86,7 +93,7 @@ export async function PUT(request: Request) {
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(token ? { 'x-admin-token': token } : {}) },
-        body: JSON.stringify({ type: 'whatsapp_mappings_updated', payload: { items: body.chats } })
+        body: JSON.stringify({ type: 'whatsapp_mappings_updated', payload: { items: parsed.data.chats } })
       });
       // ignore response
     } catch (_) {}

@@ -1,6 +1,8 @@
 export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { getPool } from '../../../../../lib/db';
+import { z } from 'zod';
+import { decryptFromB64 } from '../../../../lib/crypto';
 
 async function getDiscordSettings() {
   const pool = getPool();
@@ -13,10 +15,18 @@ export async function POST(req: Request) {
     const discord = await getDiscordSettings();
     let token: string | undefined = discord?.token;
     let guildId: string | undefined = discord?.guildId;
+    // Decrypt at-rest token if needed
+    if (!token && discord?.tokenEnc) {
+      try { token = decryptFromB64(discord.tokenEnc); } catch {}
+    }
     try {
       const body = await req.json();
-      if (body?.token) token = body.token;
-      if (body?.guildId) guildId = body.guildId;
+      const schema = z.object({ token: z.string().min(10).optional(), guildId: z.string().min(1).optional() }).strict();
+      const parsed = schema.safeParse(body);
+      if (parsed.success) {
+        if (parsed.data.token) token = parsed.data.token;
+        if (parsed.data.guildId) guildId = parsed.data.guildId;
+      }
     } catch {}
     if (!token || !guildId) {
       // Fallback: if bot is already connected, treat as OK so UI stays usable
@@ -26,7 +36,7 @@ export async function POST(req: Request) {
           return NextResponse.json({ ok: true, source: 'bot', guilds: health.checks.discord.guilds });
         }
       } catch {}
-      return NextResponse.json({ ok: false, error: 'missing_token_or_guild' }, { status: 400 });
+      return NextResponse.json({ ok: false, error: 'missing_token_or_guild' }, { status: 422 });
     }
     const res = await fetch(`https://discord.com/api/v10/guilds/${guildId}`, {
       headers: { Authorization: `Bot ${token}` },
@@ -37,10 +47,10 @@ export async function POST(req: Request) {
       try {
         const health = await fetch('http://localhost:3000/health', { cache: 'no-store' }).then(r=>r.json());
         if (health?.checks?.discord?.connected) {
-          return NextResponse.json({ ok: true, source: 'bot', status: res.status });
+          return NextResponse.json({ ok: true, source: 'bot', status: res.status }, { status: 200 });
         }
       } catch {}
-      return NextResponse.json({ ok: false, status: res.status }, { status: 200 });
+      return NextResponse.json({ ok: false, status: res.status }, { status: res.status });
     }
     const guild = await res.json();
     return NextResponse.json({ ok: true, guild: { id: guild.id, name: guild.name } });

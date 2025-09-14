@@ -1,4 +1,5 @@
 function getLogger() { return require('../utils/logger'); }
+const { PermissionFlagsBits } = require('discord.js');
 
 class ReactionHandler {
     constructor(postgresService, config) {
@@ -43,7 +44,42 @@ class ReactionHandler {
             }
 
             // Handle channel reactions for marking links as read
-            if (!this.config.discord.channelsToMonitor.includes(reaction.message.channel.id)) return;
+            // Use DB-backed monitored channels via cache, with legacy fallback to config.discord.channelsToMonitor
+            try {
+                const guildId = reaction.message.guild?.id;
+                const channelId = reaction.message.channel.id;
+                let allowed = false;
+                if (guildId && this.postgresService) {
+                    const cacheService = this.config && this.config.cacheService;
+                    const key = `monitored:${guildId}`;
+                    let list = null;
+                    if (cacheService && typeof cacheService.get === 'function') {
+                        list = await cacheService.get(key);
+                    }
+                    if (!Array.isArray(list) || list.length === 0) {
+                        list = await this.postgresService.getActiveMonitoredChannels(guildId);
+                        if (cacheService && typeof cacheService.set === 'function' && Array.isArray(list) && list.length > 0) {
+                            await cacheService.set(key, list, 60);
+                        }
+                    }
+                    allowed = Array.isArray(list) && list.includes(channelId);
+                }
+                // Legacy fallback for tests and legacy config
+                if (!allowed && this.config && this.config.discord && Array.isArray(this.config.discord.channelsToMonitor)) {
+                    allowed = this.config.discord.channelsToMonitor.includes(channelId);
+                }
+                if (!allowed) return;
+            } catch (_) {
+                // On any error determining allowed channels, fallback to legacy list
+                try {
+                    const channelId = reaction.message.channel.id;
+                    if (!(this.config && this.config.discord && Array.isArray(this.config.discord.channelsToMonitor) && this.config.discord.channelsToMonitor.includes(channelId))) {
+                        return;
+                    }
+                } catch (__) {
+                    return;
+                }
+            }
             
             // Handle admin deletion with X or trash emojis
             if (reaction.emoji.name === '❌' || reaction.emoji.name === '🗑️') {
@@ -92,8 +128,40 @@ class ReactionHandler {
                 return;
             }
             
-            // Only process reactions in monitored channels
-            if (!this.config.discord.channelsToMonitor.includes(reaction.message.channel.id)) return;
+            // Only process reactions in monitored channels (DB-backed; with legacy fallback)
+            try {
+                const guildId = reaction.message.guild?.id;
+                const channelId = reaction.message.channel.id;
+                let allowed = false;
+                if (guildId && this.postgresService) {
+                    const cacheService = this.config && this.config.cacheService;
+                    const key = `monitored:${guildId}`;
+                    let list = null;
+                    if (cacheService && typeof cacheService.get === 'function') {
+                        list = await cacheService.get(key);
+                    }
+                    if (!Array.isArray(list) || list.length === 0) {
+                        list = await this.postgresService.getActiveMonitoredChannels(guildId);
+                        if (cacheService && typeof cacheService.set === 'function' && Array.isArray(list) && list.length > 0) {
+                            await cacheService.set(key, list, 60);
+                        }
+                    }
+                    allowed = Array.isArray(list) && list.includes(channelId);
+                }
+                if (!allowed && this.config && this.config.discord && Array.isArray(this.config.discord.channelsToMonitor)) {
+                    allowed = this.config.discord.channelsToMonitor.includes(channelId);
+                }
+                if (!allowed) return;
+            } catch (_) {
+                try {
+                    const channelId = reaction.message.channel.id;
+                    if (!(this.config && this.config.discord && Array.isArray(this.config.discord.channelsToMonitor) && this.config.discord.channelsToMonitor.includes(channelId))) {
+                        return;
+                    }
+                } catch (__) {
+                    return;
+                }
+            }
             if (reaction.emoji.name !== '✅') return;
 
             getLogger().info(`Reaction removed: ${reaction.emoji.name} by ${user.username} on message ${reaction.message.id}`);
@@ -262,12 +330,12 @@ class ReactionHandler {
     async isUserAdmin(member) {
         try {
             // Check for Discord Administrator permission (most reliable)
-            if (member.permissions.has('Administrator')) {
+            if (member.permissions.has(PermissionFlagsBits.Administrator)) {
                 return true;
             }
             
             // Check for ManageMessages permission (common for moderators)
-            if (member.permissions.has('ManageMessages')) {
+            if (member.permissions.has(PermissionFlagsBits.ManageMessages)) {
                 return true;
             }
             

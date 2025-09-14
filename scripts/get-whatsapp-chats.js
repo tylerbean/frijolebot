@@ -17,6 +17,7 @@ const headers = {
     'Content-Type': 'application/json'
 };
 
+// DEPRECATED: Informational helper; not used by production app. Use Admin UI for visibility.
 async function getWhatsAppChats() {
     console.log('🔍 Getting WhatsApp chat information...');
     

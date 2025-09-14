@@ -1,9 +1,9 @@
-import { createClient, RedisClientType } from 'redis';
+import { createClient } from 'redis';
 
-let client: RedisClientType | null = null;
+let client: any | null = null;
 let connecting = false;
 
-export async function getRedis(): Promise<RedisClientType | null> {
+export async function getRedis(): Promise<any | null> {
   const url = process.env.REDIS_URL;
   if (!url) return null;
   if (client) return client;

@@ -1028,6 +1028,23 @@ class PostgreSQLService {
     }
 
     /**
+     * Get a WhatsApp message by WhatsApp message ID (for reaction lookups)
+     * @param {string} messageId - WhatsApp message ID
+     * @returns {Promise<Object|null>} Message row or null
+     */
+    async getWhatsAppMessageById(messageId) {
+        try {
+            const result = await this.pool.query(`
+                SELECT * FROM whatsapp_messages WHERE message_id = $1 LIMIT 1
+            `, [messageId]);
+            return result.rows && result.rows[0] ? result.rows[0] : null;
+        } catch (error) {
+            Logger.error('Error fetching WhatsApp message by ID:', error);
+            return null;
+        }
+    }
+
+    /**
      * Store a WhatsApp message in PostgreSQL
      * @param {Object} messageData - WhatsApp message data
      * @param {string} discordMessageId - Discord message ID where it was posted

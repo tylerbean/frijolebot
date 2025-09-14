@@ -4,6 +4,18 @@
 
 html, body {
   height: 100%;
+  overflow-x: visible;
+}
+
+/* Headless UI dropdowns rendered via portal should never be clipped */
+body > div.headless-portal, body > div[aria-label="dropdown-portal"] {
+  position: fixed;
+  z-index: 2147483647;
+}
+
+/* Also ensure vertical overflow doesn't clip fixed dropdowns */
+html, body, main {
+  overflow: visible !important;
 }
 
 

@@ -5,7 +5,7 @@ export default function Page() {
   return (
     <main className="mx-auto max-w-5xl p-6 space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold">LinkTracker</h1>
+        <h1 className="text-xl font-semibold">Discord Link Tracker</h1>
         <Link href="/" className="text-sm text-indigo-600">Back</Link>
       </div>
       <LinkTrackerPanel />

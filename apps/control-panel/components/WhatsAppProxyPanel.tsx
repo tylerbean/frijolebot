@@ -1,6 +1,6 @@
 'use client';
-import { useEffect, useMemo, useState } from 'react';
-import { Switch, Listbox } from '@headlessui/react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Switch, Listbox, Portal } from '@headlessui/react';
 import { useReactTable, getCoreRowModel, createColumnHelper, flexRender } from '@tanstack/react-table';
 
 type Channel = { id: string; name: string };
@@ -43,40 +43,71 @@ export default function WhatsAppProxyPanel() {
     columnHelper.display({
       id: 'chatName',
       header: 'Chat Name',
-      cell: ({ row }) => (
-        <div className="relative inline-block">
-          <Listbox value={row.original.chatId} onChange={(v) => updateChat(row.index, v)}>
-            <Listbox.Button className="rounded border px-3 py-2 w-64 text-left">
-              {row.original.chatName || 'Select a chat'}
-            </Listbox.Button>
-            <Listbox.Options className="absolute z-50 mt-1 max-h-60 w-72 overflow-auto rounded border bg-white shadow">
-              {availableChats.map(c => (
-                <Listbox.Option key={c.chat_id} value={c.chat_id} className="px-3 py-2 ui-active:bg-indigo-50 cursor-pointer">
-                  {c.chat_name}
-                </Listbox.Option>
-              ))}
-            </Listbox.Options>
-          </Listbox>
-        </div>
-      )
+      cell: ({ row }) => {
+        const btnRef = useRef<HTMLButtonElement | null>(null);
+        // If there are no available chats, render a disabled control with guidance
+        if (availableChats.length === 0) {
+          return (
+            <div className="inline-flex flex-col gap-1">
+              <button disabled className="rounded border px-3 py-2 w-64 text-left bg-gray-100 text-gray-500 cursor-not-allowed">No chats available</button>
+              <span className="text-xs text-gray-500">Receive a WhatsApp message, then refresh.</span>
+            </div>
+          );
+        }
+        return (
+          <div className="relative inline-block">
+            <Listbox value={row.original.chatId} onChange={(v) => updateChat(row.index, v)}>
+              {({ open }) => {
+                const rect = btnRef.current?.getBoundingClientRect();
+                let style: any = undefined;
+                if (rect) {
+                  const minWidth = 288;
+                  const width = Math.max(rect.width, minWidth);
+                  let left = rect.left + window.scrollX;
+                  if (left + width > window.innerWidth) left = Math.max(8, window.innerWidth - width - 8);
+                  const maxBelow = window.innerHeight - rect.bottom - 8;
+                  const maxAbove = rect.top - 8;
+                  const desiredMaxH = 240;
+                  let top = rect.bottom + window.scrollY;
+                  let maxHeight = Math.min(desiredMaxH, maxBelow);
+                  if (maxHeight < 120 && maxAbove > maxBelow) {
+                    maxHeight = Math.min(desiredMaxH, maxAbove);
+                    top = rect.top + window.scrollY - maxHeight;
+                  }
+                  style = { position: 'fixed' as const, top, left, width, zIndex: 2147483647, maxHeight };
+                }
+                return (
+                  <>
+                    <Listbox.Button ref={btnRef} className="rounded border px-3 py-2 w-64 text-left">
+                      {row.original.chatName || 'Select a chat'}
+                    </Listbox.Button>
+                    {open && rect && (
+                      <Portal>
+                        <div className="headless-portal" aria-label="dropdown-portal" style={style}>
+                          <Listbox.Options static className="w-full overflow-auto rounded border bg-white shadow" style={{ maxHeight: (style as any)?.maxHeight ?? 240 }}>
+                            {availableChats.map(c => (
+                              <Listbox.Option key={c.chat_id} value={c.chat_id} className="px-3 py-2 ui-active:bg-indigo-50 cursor-pointer">
+                                {c.chat_name}
+                              </Listbox.Option>
+                            ))}
+                          </Listbox.Options>
+                        </div>
+                      </Portal>
+                    )}
+                  </>
+                );
+              }}
+            </Listbox>
+          </div>
+        );
+      }
     }),
     columnHelper.display({
       id: 'channel',
       header: 'Discord Channel',
       cell: ({ row }) => (
         <div className="relative inline-block">
-          <Listbox value={row.original.channelId ?? ''} onChange={(v) => updateRow(row.index, v)}>
-            <Listbox.Button className="rounded border px-3 py-2 w-64 text-left">
-              {channels.find(c => c.id === row.original.channelId)?.name ?? 'Select a channel'}
-            </Listbox.Button>
-            <Listbox.Options className="absolute z-50 mt-1 max-h-60 w-64 overflow-auto rounded border bg-white shadow">
-              {channels.map(c => (
-                <Listbox.Option key={c.id} value={c.id} className="px-3 py-2 ui-active:bg-indigo-50 cursor-pointer">
-                  {c.name}
-                </Listbox.Option>
-              ))}
-            </Listbox.Options>
-          </Listbox>
+          <ChannelSelectCell value={row.original.channelId ?? ''} onChange={(v) => updateRow(row.index, v)} />
         </div>
       )
     }),
@@ -104,6 +135,62 @@ export default function WhatsAppProxyPanel() {
 
   const table = useReactTable({ data: rows, columns, getCoreRowModel: getCoreRowModel() });
 
+  function ChannelSelectCell(props: { value?: string; onChange: (v: string) => void }) {
+    const btnRef = useRef<HTMLButtonElement | null>(null);
+    if (channels.length === 0) {
+      return (
+        <div className="inline-flex flex-col gap-1">
+          <button disabled className="rounded border px-3 py-2 w-64 text-left bg-gray-100 text-gray-500 cursor-not-allowed">No channels available</button>
+          <span className="text-xs text-gray-500">Configure Discord in Admin → Test Connection to load channels.</span>
+        </div>
+      );
+    }
+    return (
+      <Listbox value={props.value ?? ''} onChange={props.onChange}>
+        {({ open }) => {
+          const rect = btnRef.current?.getBoundingClientRect();
+          let style: any = undefined;
+          if (rect) {
+            const minWidth = 288;
+            const width = Math.max(rect.width, minWidth);
+            let left = rect.left + window.scrollX;
+            if (left + width > window.innerWidth) left = Math.max(8, window.innerWidth - width - 8);
+            const maxBelow = window.innerHeight - rect.bottom - 8;
+            const maxAbove = rect.top - 8;
+            const desiredMaxH = 240;
+            let top = rect.bottom + window.scrollY;
+            let maxHeight = Math.min(desiredMaxH, maxBelow);
+            if (maxHeight < 120 && maxAbove > maxBelow) {
+              maxHeight = Math.min(desiredMaxH, maxAbove);
+              top = rect.top + window.scrollY - maxHeight;
+            }
+            style = { position: 'fixed' as const, top, left, width, zIndex: 2147483647, maxHeight };
+          }
+          return (
+            <>
+              <Listbox.Button ref={btnRef} className="rounded border px-3 py-2 w-64 text-left">
+                {channels.find(c => c.id === (props.value ?? ''))?.name ?? 'Select a channel'}
+              </Listbox.Button>
+              {open && rect && (
+                <Portal>
+                  <div className="headless-portal" aria-label="dropdown-portal" style={style}>
+                    <Listbox.Options static className="w-full overflow-auto rounded border bg-white shadow" style={{ maxHeight: (style as any)?.maxHeight ?? 240 }}>
+                      {channels.map(c => (
+                        <Listbox.Option key={c.id} value={c.id} className="px-3 py-2 ui-active:bg-indigo-50 cursor-pointer">
+                          {c.name}
+                        </Listbox.Option>
+                      ))}
+                    </Listbox.Options>
+                  </div>
+                </Portal>
+              )}
+            </>
+          );
+        }}
+      </Listbox>
+    );
+  }
+
   function addRow() {
     setRows(prev => [...prev, { chatId: '', chatName: 'New Mapping', channelId: '', isActive: true }]);
   }
@@ -121,6 +208,13 @@ export default function WhatsAppProxyPanel() {
     setRows(prev => prev.map((r, i) => i === index ? ({ ...r, chatId, chatName: found?.chat_name ?? chatId }) : r));
   }
 
+  const [toasts, setToasts] = useState<Array<{ id: number; kind: 'success' | 'error'; message: string }>>([]);
+  function addToast(message: string, kind: 'success' | 'error' = 'success') {
+    const id = Date.now() + Math.floor(Math.random() * 1000);
+    setToasts((t) => [...t, { id, kind, message }]);
+    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 3500);
+  }
+
   async function save() {
     setPending(true);
     try {
@@ -128,6 +222,7 @@ export default function WhatsAppProxyPanel() {
       const chatsPayload = { chats: rows.filter(r => r.chatId).map(r => ({ chat_id: r.chatId, discord_channel_id: r.channelId || null, is_active: r.isActive ?? true, chat_name: r.chatName || null })) };
       const res2 = await fetch('/api/whatsapp/chats', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(chatsPayload) });
       if (!res2.ok) throw new Error('Failed to save chats');
+      addToast('WhatsApp mappings saved', 'success');
     } finally {
       setPending(false);
     }
@@ -135,30 +230,39 @@ export default function WhatsAppProxyPanel() {
 
   return (
     <div className="space-y-4">
+      {toasts.length > 0 && (
+        <div className="fixed right-4 top-4 z-50 space-y-2">
+          {toasts.map(t => (
+            <div key={t.id} className={`rounded px-4 py-2 text-white shadow ${t.kind === 'success' ? 'bg-green-600' : 'bg-red-600'}`}>
+              {t.message}
+            </div>
+          ))}
+        </div>
+      )}
       {/* Feature toggles moved to Admin page */}
 
-      <div className="rounded border bg-white p-4 shadow-sm">
+      <div className="rounded border bg-white p-4 shadow-sm" style={{ overflow: 'visible', position: 'relative' }}>
         <div className="mb-3 flex items-center justify-between">
           <h3 className="font-medium">Conversation / Channel Mapping</h3>
           <button onClick={addRow} className="rounded bg-indigo-600 px-3 py-2 text-white">Add Mapping</button>
         </div>
 
         <div className="rounded border" style={{ overflow: 'visible' }}>
-          <table className="min-w-full text-sm">
-            <thead className="bg-gray-50">
+          <table className="min-w-full text-sm" style={{ overflow: 'visible' }}>
+            <thead className="bg-gray-50" style={{ overflow: 'visible' }}>
               {table.getHeaderGroups().map(hg => (
-                <tr key={hg.id}>{hg.headers.map(h => (
-                  <th key={h.id} className="px-4 py-2 text-left font-medium text-gray-700">
+                <tr key={hg.id} style={{ overflow: 'visible' }}>{hg.headers.map(h => (
+                  <th key={h.id} className="px-4 py-2 text-left font-medium text-gray-700" style={{ overflow: 'visible' }}>
                     {flexRender(h.column.columnDef.header, h.getContext())}
                   </th>
                 ))}</tr>
               ))}
             </thead>
-            <tbody>
+            <tbody style={{ overflow: 'visible' }}>
               {table.getRowModel().rows.map(r => (
-                <tr key={r.id} className="border-t">
+                <tr key={r.id} className="border-t" style={{ overflow: 'visible' }}>
                   {r.getVisibleCells().map(c => (
-                    <td key={c.id} className="px-4 py-2">
+                    <td key={c.id} className="px-4 py-2 overflow-visible relative" style={{ overflow: 'visible' }}>
                       {flexRender(c.column.columnDef.cell, c.getContext())}
                     </td>
                   ))}

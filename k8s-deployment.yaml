@@ -33,16 +33,7 @@ spec:
             configMapKeyRef:
               name: frijolebot-config
               key: discord-guild-id
-        - name: DISCORD_CHANNEL_GENERAL
-          valueFrom:
-            configMapKeyRef:
-              name: frijolebot-config
-              key: discord-channel-general
-        - name: DISCORD_CHANNEL_LINKS
-          valueFrom:
-            configMapKeyRef:
-              name: frijolebot-config
-              key: discord-channel-links
+        # Channel monitoring is managed in-app via Admin UI (DB). No env-based channels.
         - name: POSTGRES_HOST
           valueFrom:
             configMapKeyRef:

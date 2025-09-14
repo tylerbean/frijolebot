@@ -1,20 +1,20 @@
 export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
+import { z } from 'zod';
 
 export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => ({}));
-    const token: string | undefined = body?.token;
-    const guildId: string | undefined = body?.guildId;
-    if (!token || !guildId) {
-      return NextResponse.json({ ok: false, error: 'missing_token_or_guild' }, { status: 400 });
-    }
+    const schema = z.object({ token: z.string().min(10), guildId: z.string().min(1) }).strict();
+    const parsed = schema.safeParse(body);
+    if (!parsed.success) return NextResponse.json({ ok: false, error: 'invalid_request' }, { status: 422 });
+    const { token, guildId } = parsed.data;
     const res = await fetch(`https://discord.com/api/v10/guilds/${guildId}/channels`, {
       headers: { Authorization: `Bot ${token}` },
       cache: 'no-store'
     });
     if (!res.ok) {
-      return NextResponse.json({ ok: false, status: res.status }, { status: 200 });
+      return NextResponse.json({ ok: false, status: res.status }, { status: res.status });
     }
     const data = await res.json();
     const channels = (Array.isArray(data) ? data : [])

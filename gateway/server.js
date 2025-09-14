@@ -8,6 +8,8 @@ const PORT = process.env.PORT || 3000;
 const proxy = createProxyServer({
   xfwd: true,
   changeOrigin: true,
+  proxyTimeout: 30_000,
+  timeout: 30_000,
 });
 
 function proxyTo(targetPort, req, res, opts = {}) {
@@ -18,6 +20,11 @@ function proxyTo(targetPort, req, res, opts = {}) {
 }
 
 const server = http.createServer((req, res) => {
+  // Basic hardening
+  req.socket.setTimeout(30_000);
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-XSS-Protection', '0');
   const url = req.url || '/';
   // Health endpoints → bot
   if (url === '/health' || url.startsWith('/health/')) {

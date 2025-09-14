@@ -1,9 +1,9 @@
 'use client';
-import { useEffect, useState } from 'react';
-import { Switch, Listbox } from '@headlessui/react';
+import { useEffect, useState, useRef } from 'react';
+import { Switch, Listbox, Portal } from '@headlessui/react';
 
 type Settings = {
-  discord: { enabled: boolean; token?: string; guildId?: string; adminChannelId?: string; linkTrackerEnabled?: boolean };
+  discord: { enabled: boolean; token?: string; tokenPreview?: string; tokenDecryptError?: boolean; guildId?: string; adminChannelId?: string; linkTrackerEnabled?: boolean };
   whatsapp: { enabled: boolean; storeMessages: boolean };
   timezone: { tz: string };
   caching: { redisUrl?: string; enabled?: boolean };
@@ -38,26 +38,31 @@ export default function AdminPage() {
     })();
   }, []);
 
-  // Load channel list if we already have token/guild (ensure admin channel shows after refresh)
+  // Load channel list using server-side decrypted token if guildId is present
   useEffect(() => {
     (async () => {
-      if (!s?.discord?.token || !s.discord.guildId) return;
+      if (!s?.discord?.guildId) return;
       try {
-        const list = await fetch('/api/admin/discord/channels', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ token: s.discord.token, guildId: s.discord.guildId })
-        }).then(r => r.json());
-        if (list?.ok && Array.isArray(list.channels)) setDiscordChannels(list.channels);
+        // Use GET endpoint that decrypts token at the server
+        const res = await fetch('/api/discord/channels', { cache: 'no-store' }).then(r=>r.json());
+        if (Array.isArray(res?.channels)) setDiscordChannels(res.channels);
       } catch {}
     })();
-  }, [s?.discord?.token, s?.discord?.guildId]);
+  }, [s?.discord?.guildId]);
 
   if (loading || !s) return <main className="mx-auto max-w-5xl p-6">Loading...</main>;
 
   async function saveDiscord() {
     try {
-      const r = await fetch('/api/admin/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ discord: s.discord }) });
+      if (!s) return;
+      const payload: any = {
+        enabled: !!s.discord.enabled,
+        linkTrackerEnabled: s.discord.linkTrackerEnabled === undefined ? undefined : !!s.discord.linkTrackerEnabled,
+      };
+      if (s.discord.token && s.discord.token.trim().length >= 10) payload.token = s.discord.token.trim();
+      if (s.discord.guildId && s.discord.guildId.trim().length > 0) payload.guildId = s.discord.guildId.trim();
+      if (s.discord.adminChannelId && s.discord.adminChannelId.trim().length > 0) payload.adminChannelId = s.discord.adminChannelId.trim();
+      const r = await fetch('/api/admin/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ discord: payload }) });
       if (!r.ok) throw new Error((await r.json()).error || 'Save failed');
       addToast('Discord settings saved', 'success');
     } catch (e: any) {
@@ -66,6 +71,7 @@ export default function AdminPage() {
   }
   async function saveWhatsApp() {
     try {
+      if (!s) return;
       const r = await fetch('/api/admin/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ whatsapp: s.whatsapp }) });
       if (!r.ok) throw new Error((await r.json()).error || 'Save failed');
       addToast('WhatsApp settings saved', 'success');
@@ -75,6 +81,7 @@ export default function AdminPage() {
   }
   async function saveTimezone() {
     try {
+      if (!s) return;
       const r = await fetch('/api/admin/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ timezone: s.timezone }) });
       if (!r.ok) throw new Error((await r.json()).error || 'Save failed');
       addToast('Timezone saved', 'success');
@@ -84,15 +91,32 @@ export default function AdminPage() {
   }
   async function saveCaching() {
     try {
+      if (!s) return;
       const r = await fetch('/api/admin/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ caching: s.caching }) });
       if (!r.ok) throw new Error((await r.json()).error || 'Save failed');
-      addToast('Caching settings saved', 'success');
+      const isEmpty = !s.caching.redisUrl || s.caching.redisUrl.trim() === '';
+      addToast(isEmpty ? 'Caching disabled' : 'Caching settings saved', 'success');
+      // Reflect server normalization locally: empty URL disables caching
+      if (!s.caching.redisUrl || s.caching.redisUrl.trim() === '') {
+        setS({ ...s, caching: { ...s.caching, enabled: false, redisUrl: '' } });
+      }
+      // Refresh test status: if URL empty, show disabled; else retest
+      try {
+        if (!s.caching.redisUrl || s.caching.redisUrl.trim() === '') {
+          setRedisTest('');
+        } else {
+          const res = await fetch('/api/admin/test/redis', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) }).then(r=>r.json());
+          const err = res?.error || res?.code || 'Unknown error';
+          setRedisTest(res.ok ? 'Redis OK' : `Failed: ${err}`);
+        }
+      } catch {}
     } catch (e: any) {
       addToast(`Caching save failed: ${e.message || e}`, 'error');
     }
   }
   async function saveRateLimit() {
     try {
+      if (!s) return;
       const r = await fetch('/api/admin/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rateLimit: s.rateLimit }) });
       if (!r.ok) throw new Error((await r.json()).error || 'Save failed');
       addToast('Rate limit settings saved', 'success');
@@ -112,9 +136,11 @@ export default function AdminPage() {
   }
   async function testRedis() {
     try {
-      const res = await fetch('/api/admin/test/redis', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: s.caching.redisUrl || '' }) }).then(r => r.json());
-      setRedisTest(res.ok ? 'Redis OK' : `Failed: ${res.error}`);
-      addToast(res.ok ? 'Redis connected' : `Redis test failed: ${res.error}`, res.ok ? 'success' : 'error');
+      if (!s) return;
+      const res = await fetch('/api/admin/test/redis', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ redisUrl: s.caching.redisUrl || '' }) }).then(r => r.json());
+      const err = res?.error || res?.code || 'Unknown error';
+      setRedisTest(res.ok ? 'Redis OK' : `Failed: ${err}`);
+      addToast(res.ok ? 'Redis connected' : `Redis test failed: ${err}`, res.ok ? 'success' : 'error');
     } catch (e: any) {
       addToast(`Redis test failed: ${e.message || e}`, 'error');
     }
@@ -124,6 +150,11 @@ export default function AdminPage() {
 
   return (
     <main className="mx-auto max-w-5xl p-6 space-y-6">
+      {s.discord?.tokenDecryptError && (
+        <div className="rounded border border-red-300 bg-red-50 p-3 text-red-800">
+          Discord functionality is disabled: encrypted bot token could not be decrypted. Ensure CONFIG_CRYPTO_KEY matches the key used to store the token, then re-save the token.
+        </div>
+      )}
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Admin</h1>
         <a href="/" className="rounded border px-3 py-2 hover:bg-gray-50">Back</a>
@@ -135,7 +166,7 @@ export default function AdminPage() {
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="block">
             <span className="text-sm text-gray-700">Discord Bot Token</span>
-            <input type="password" autoComplete="new-password" value={s.discord.token || ''} onChange={e=>setS({ ...s, discord: { ...s.discord, token: e.target.value }})} className="mt-1 w-full rounded border px-3 py-2" placeholder="" />
+            <input type="password" autoComplete="new-password" value={s.discord.token || ''} onChange={e=>setS({ ...s, discord: { ...s.discord, token: e.target.value }})} className="mt-1 w-full rounded border px-3 py-2" placeholder={s.discord.tokenPreview ? s.discord.tokenPreview : ''} />
           </label>
           <label className="block">
             <span className="text-sm text-gray-700">Discord Guild ID</span>
@@ -143,22 +174,53 @@ export default function AdminPage() {
           </label>
           <label className="block">
             <span className="text-sm text-gray-700">Discord Admin Channel</span>
-            <select disabled={!discordTest.startsWith('Connected') && discordChannels.length === 0} value={s.discord.adminChannelId || ''} onChange={e=>setS({ ...s, discord: { ...s.discord, adminChannelId: e.target.value }})} className="mt-1 w-full rounded border px-3 py-2 disabled:bg-gray-100">
-              <option value="">{discordChannels.length ? 'Select a channel' : 'Select after connect test'}</option>
-              {discordChannels.map(c => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-            </select>
+            {(() => {
+              const disabled = !discordChannels || discordChannels.length === 0;
+              const AdminChannelSelect = () => {
+                const btnRef = useRef<HTMLButtonElement | null>(null);
+                return (
+                  <Listbox value={s.discord.adminChannelId || ''} onChange={(v:string)=>setS({ ...s, discord: { ...s.discord, adminChannelId: v }})}>
+                    {({ open }) => {
+                      const rect = btnRef.current?.getBoundingClientRect();
+                      const style = rect ? { position: 'fixed' as const, top: rect.bottom + window.scrollY, left: rect.left + window.scrollX, width: rect.width, zIndex: 2147483647 } : undefined;
+                      return (
+                        <>
+                          <Listbox.Button ref={btnRef} className={`mt-1 w-full rounded border px-3 py-2 text-left ${disabled ? 'bg-gray-100 cursor-not-allowed' : ''}`} aria-disabled={disabled}>
+                            {s.discord.adminChannelId ? (discordChannels.find(c=>c.id===s.discord.adminChannelId)?.name || s.discord.adminChannelId) : (discordChannels.length ? 'Select a channel' : 'Select after connect test')}
+                          </Listbox.Button>
+                          {open && rect && !disabled && (
+                            <Portal>
+                              <div style={style}>
+                                <Listbox.Options static className="max-h-60 w-full overflow-auto rounded border bg-white shadow">
+                                  {discordChannels.map(c => (
+                                    <Listbox.Option key={c.id} value={c.id} className="px-3 py-2 ui-active:bg-indigo-50 cursor-pointer">
+                                      {c.name}
+                                    </Listbox.Option>
+                                  ))}
+                                </Listbox.Options>
+                              </div>
+                            </Portal>
+                          )}
+                        </>
+                      );
+                    }}
+                  </Listbox>
+                );
+              };
+              return <AdminChannelSelect/>;
+            })()}
           </label>
           <div className="flex items-end gap-2">
             <button onClick={async ()=>{
               try {
                 const res = await fetch('/api/admin/test/discord', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: s.discord.token, guildId: s.discord.guildId })}).then(r=>r.json());
-                setDiscordTest(res.ok ? `Connected to ${res.guild?.name || res.guild?.id}` : `Failed: ${res.error || res.status}`);
+                const guildName = res?.guild?.name || res?.guilds?.[0]?.name;
+                setDiscordTest(res.ok ? (guildName ? `Connected to ${guildName}` : 'Connected') : `Failed: ${res.error || res.status}`);
                 addToast(res.ok ? 'Discord connected' : `Discord test failed: ${res.error || res.status}`, res.ok ? 'success' : 'error');
                 if (res.ok) {
-                  const list = await fetch('/api/admin/discord/channels', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: s.discord.token, guildId: s.discord.guildId })}).then(r=>r.json()).catch(()=>({ ok:false }));
-                  if (list?.ok && Array.isArray(list.channels)) setDiscordChannels(list.channels);
+                  // Reload channels from server-decrypted endpoint
+                  const list = await fetch('/api/discord/channels', { cache: 'no-store' }).then(r=>r.json()).catch(()=>({ channels: [] }));
+                  if (Array.isArray(list?.channels)) setDiscordChannels(list.channels);
                 }
               } catch (e: any) {
                 addToast(`Discord test failed: ${e.message || e}`, 'error');
@@ -225,7 +287,7 @@ export default function AdminPage() {
         </div>
         <label className="block">
           <span className="text-sm text-gray-700">Redis URL</span>
-          <input disabled={!s.caching.enabled} value={s.caching.redisUrl || ''} onChange={e=>setS({ ...s, caching: { redisUrl: e.target.value }})} className={`mt-1 w-full rounded border px-3 py-2 ${!s.caching.enabled ? 'bg-gray-100 cursor-not-allowed' : ''}`} placeholder="redis://host:6379/1" />
+          <input value={s.caching.redisUrl || ''} onChange={e=>setS({ ...s, caching: { ...s.caching, redisUrl: e.target.value }})} className={`mt-1 w-full rounded border px-3 py-2`} placeholder="redis://host:6379/1" />
         </label>
         <div className="flex items-center gap-2">
           <button onClick={testRedis} className="rounded bg-indigo-600 px-3 py-2 text-white">Test Redis</button>

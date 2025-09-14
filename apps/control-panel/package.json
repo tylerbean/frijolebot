@@ -16,6 +16,13 @@
     "autoprefixer": "^10.4.20",
     "@headlessui/react": "^1.7.18",
     "@tanstack/react-table": "^8.20.5",
-    "redis": "^4.7.0"
+    "redis": "^4.7.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/react": "19.1.12",
+    "@types/react-dom": "19.1.5",
+    "@types/pg": "^8.11.6",
+    "typescript": "5.9.2"
   }
 }

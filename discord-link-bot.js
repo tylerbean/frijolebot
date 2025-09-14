@@ -51,7 +51,24 @@ try {
   const whatsappRow = await postgresService.pool.query('SELECT value FROM app_settings WHERE key = $1', ['whatsapp']);
   const rateLimitRow = await postgresService.pool.query('SELECT value FROM app_settings WHERE key = $1', ['rateLimit']);
   const cachingRow = await postgresService.pool.query('SELECT value FROM app_settings WHERE key = $1', ['caching']);
-  if (discordRow.rows[0]?.value) Object.assign(settings, { discord: { enabled: !!discordRow.rows[0].value.enabled, token: discordRow.rows[0].value.token, guildId: discordRow.rows[0].value.guildId, adminChannelId: discordRow.rows[0].value.adminChannelId } });
+  if (discordRow.rows[0]?.value) {
+    const v = discordRow.rows[0].value;
+    const discord = { enabled: !!v.enabled, guildId: v.guildId, adminChannelId: v.adminChannelId };
+    // Decrypt token if stored as tokenEnc (preferred)
+    try {
+      const { decryptFromB64 } = require('./services/tokenCrypto');
+      if (v.tokenEnc) {
+        discord.token = decryptFromB64(v.tokenEnc);
+      } else if (v.token) {
+        // Legacy fallback
+        discord.token = v.token;
+      }
+    } catch (_) {
+      Logger.warning('Discord token decryption failed. Discord functionality will be disabled until a valid CONFIG_CRYPTO_KEY is provided.');
+      // do not fall back to legacy token here; require proper key
+    }
+    Object.assign(settings, { discord });
+  }
   if (whatsappRow.rows[0]?.value) Object.assign(settings, { whatsapp: { enabled: !!whatsappRow.rows[0].value.enabled, storeMessages: !!whatsappRow.rows[0].value.storeMessages } });
   if (rateLimitRow.rows[0]?.value) config.rateLimit = {
     windowMs: ((rateLimitRow.rows[0].value.windowSec || 60) * 1000),
@@ -62,9 +79,11 @@ try {
   if (cachingRow.rows[0]?.value) config.caching = cachingRow.rows[0].value;
 } catch (_) {}
 
-// Initialize cache using Admin settings (fallback to env)
-cacheService = new CacheService(config.caching?.redisUrl || process.env.REDIS_URL);
+// Initialize cache using Admin settings
+cacheService = new CacheService(config.caching?.redisUrl || null);
 await cacheService.initialize();
+// Inject cache into config so handlers can use it
+try { config.cacheService = cacheService; } catch (_) {}
 
 // Create Discord client (will only login when enabled via settings)
 const client = new Client({
@@ -242,11 +261,21 @@ async function executeReadyLogic() {
       Logger.info('Client is already ready, executing ready logic immediately...');
       await executeReadyLogic();
   } else {
-      // Use clientReady for Discord.js v14.22.1+ compatibility
-      client.once('clientReady', async () => {
-          Logger.info('ClientReady event fired!');
-          await executeReadyLogic();
-      });
+      // Discord.js v14 uses 'ready'; v15 prefers 'clientReady'. Listen to both, guard double-run.
+      let ran = false;
+      const runOnce = async (label) => {
+        if (ran) return;
+        ran = true;
+        Logger.info(`${label} event fired!`);
+        await executeReadyLogic();
+      };
+      client.once('ready', async () => { await runOnce('ready'); });
+      // Some environments emit 'clientReady' (deprecation note). If present, subscribe.
+      if (typeof client.once === 'function') {
+        try {
+          client.once('clientReady', async () => { await runOnce('clientReady'); });
+        } catch (_) {}
+      }
   }
 
 // Helper to best-effort send an admin message during shutdown

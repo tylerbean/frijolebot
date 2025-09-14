@@ -57,8 +57,8 @@ Use `.env.example` as a template. Most runtime settings are stored in the databa
 
 ```
 POSTGRES_HOST, POSTGRES_PORT, POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DATABASE
-REDIS_URL
 ADMIN_NOTIFY_TOKEN
+CONFIG_CRYPTO_KEY (required to encrypt/decrypt secrets stored in DB; 32-byte base64/hex)
 ```
 
 ### 4. Add Bot to Server
@@ -293,6 +293,7 @@ See `k8s-deployment.yaml` for a complete Kubernetes deployment example with:
 - **`RATE_LIMIT_WINDOW_MS`** - Rate limit window in milliseconds (default: 60000)
 - **`RATE_LIMIT_MAX_REQUESTS`** - Maximum requests per window (default: 5)
 - **`RATE_LIMIT_CLEANUP_INTERVAL`** - Cleanup interval in milliseconds (default: 300000)
+- **`CONFIG_CRYPTO_KEY`** - 32-byte key (base64 or hex) for encrypting Discord token in DB. Generate with: `openssl rand -base64 32`
 
 ## Rate Limiting
 
@@ -384,8 +385,7 @@ For WhatsApp session persistence in Docker, map the session directories:
 docker run -d \
   --name frijolebot \
   --env-file .env \
-  -v frijolebot-whatsapp-sessions:/app/.wwebjs_auth \
-  -v frijolebot-whatsapp-cache:/app/.wwebjs_cache \
+  -v frijolebot-whatsapp-sessions:/app/auth_info_baileys \
   frijolebot
 ```
 
@@ -395,12 +395,10 @@ Or in `docker-compose.yml`:
 services:
   frijolebot:
     volumes:
-      - whatsapp-sessions:/app/.wwebjs_auth
-      - whatsapp-cache:/app/.wwebjs_cache
+      - whatsapp-sessions:/app/auth_info_baileys
 
 volumes:
   whatsapp-sessions:
-  whatsapp-cache:
 ```
 
 ### Authentication Flow

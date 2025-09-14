@@ -5,33 +5,29 @@ import { publish } from '../../../../lib/redis';
 import { getRedis } from '../../../../lib/redis';
 import fs from 'fs';
 import path from 'path';
-
-const ENV_PATH = path.join(process.cwd(), '..', '..', '.env');
-function parseEnv(content: string): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const line of content.split('\n')) {
-    const t = line.trim();
-    if (!t || t.startsWith('#')) continue;
-    const i = t.indexOf('=');
-    if (i === -1) continue;
-    out[t.slice(0, i).trim()] = t.slice(i + 1).trim();
-  }
-  return out;
-}
-function getGuildId(): string | undefined {
+import { loadEnv } from '../../../../app/lib/env';
+import { z } from 'zod';
+async function getGuildId(): Promise<string | undefined> {
+  // Prefer DB-backed guildId, fallback to env for legacy compatibility
   try {
-    const content = fs.readFileSync(ENV_PATH, 'utf-8');
-    const env = parseEnv(content);
-    return env.DISCORD_GUILD_ID;
-  } catch (_) {
-    return process.env.DISCORD_GUILD_ID;
-  }
+    const pool = getPool();
+    const res = await pool.query('SELECT value FROM app_settings WHERE key = $1', ['discord']);
+    const discord = res.rows[0]?.value || {};
+    if (discord && typeof discord.guildId === 'string' && discord.guildId.length > 0) {
+      return discord.guildId;
+    }
+  } catch (_) {}
+  try {
+    const env = loadEnv();
+    if (env && typeof env.DISCORD_GUILD_ID === 'string' && env.DISCORD_GUILD_ID.length > 0) return env.DISCORD_GUILD_ID;
+  } catch (_) {}
+  return process.env.DISCORD_GUILD_ID;
 }
 
 export async function GET() {
   try {
     const pool = getPool();
-    const guildId = getGuildId();
+    const guildId = await getGuildId();
     // Cache key
     const cacheKey = guildId ? `monitored:${guildId}` : 'monitored:all';
     try {
@@ -58,16 +54,21 @@ export async function GET() {
 export async function PUT(request: Request) {
   try {
     const body = await request.json();
-    if (!Array.isArray(body.channels)) {
-      return NextResponse.json({ error: 'Invalid payload' }, { status: 400 });
-    }
+    const channelSchema = z.object({
+      channel_id: z.string().min(1),
+      channel_name: z.string().min(1).optional(),
+      is_active: z.boolean().optional()
+    }).strict();
+    const schema = z.object({ channels: z.array(channelSchema).max(500) }).strict();
+    const parsed = schema.safeParse(body);
+    if (!parsed.success) return NextResponse.json({ error: 'invalid_payload' }, { status: 422 });
     const pool = getPool();
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
-      for (const row of body.channels) {
+      for (const row of parsed.data.channels) {
         if (!row || !row.channel_id) continue;
-        const guildId = getGuildId();
+        const guildId = await getGuildId();
         if (!guildId) continue;
         await client.query(`
           INSERT INTO discord_links_channels (guild_id, channel_id, channel_name, is_active)
@@ -91,11 +92,11 @@ export async function PUT(request: Request) {
       await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(token ? { 'x-admin-token': token } : {}) },
-        body: JSON.stringify({ type: 'discord_channels_updated', payload: { items: body.channels } })
+        body: JSON.stringify({ type: 'discord_channels_updated', payload: { items: parsed.data.channels } })
       });
       // Publish cache invalidation directly to Redis (best-effort)
       try {
-        const guildId = getGuildId();
+        const guildId = await getGuildId();
         await publish('monitored.invalidate', { guildId });
         // Also evict UI-side cache for this guild
         const c = await getRedis();

@@ -1,6 +1,8 @@
 const axios = require('axios');
 require('dotenv').config();
 
+// DEPRECATED: This script was for Baserow-era config and is not used by current Admin UI.
+// Prefer managing chats via the Control Panel.
 async function addWhatsAppChat() {
     const baserowApiUrl = `${process.env.BASEROW_API_URL}${process.env.BASEROW_WHATSAPP_CHATS_TABLE_ID}/`;
     const headers = {

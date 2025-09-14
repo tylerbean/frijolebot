@@ -35,7 +35,8 @@ USER botuser
 
 # Build the UI if a valid package.json exists, otherwise skip (use prebuilt .next)
 WORKDIR /app/apps/control-panel
-RUN npm ci && npm run build
+ENV NEXT_TELEMETRY_DISABLED=1
+RUN npm install --no-audit --no-fund && npm run build
 
 FROM node:20-alpine AS runner
 WORKDIR /app
@@ -49,7 +50,11 @@ COPY --from=base /app/gateway ./gateway
 COPY --from=base /app/package*.json ./
 COPY --from=base /app/discord-link-bot.js ./
 # Copy entire control-panel directory to support dev fallback (includes app/, .next/, node_modules/, public)
-COPY --from=base /app/apps/control-panel ./apps/control-panel
+# Copy minimal UI artifacts: node_modules and production build only
+COPY --from=base /app/apps/control-panel/node_modules ./apps/control-panel/node_modules
+COPY --from=base /app/apps/control-panel/.next ./apps/control-panel/.next
+COPY --from=base /app/apps/control-panel/public ./apps/control-panel/public
+COPY --from=base /app/apps/control-panel/package.json ./apps/control-panel/package.json
 
 # Expose single port
 EXPOSE 3000

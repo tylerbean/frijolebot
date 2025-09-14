@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { getPool } from '../../../../lib/db';
 import { getRedis } from '../../../../lib/redis';
+import { decryptFromB64 } from '../../../lib/crypto';
 
 export async function GET() {
   // Read from app_settings.discord
@@ -12,6 +13,9 @@ export async function GET() {
     const res = await pool.query('SELECT value FROM app_settings WHERE key = $1', ['discord']);
     const discord = res.rows[0]?.value || {};
     token = discord.token;
+    if (!token && discord.tokenEnc) {
+      try { token = decryptFromB64(discord.tokenEnc); } catch (_) {}
+    }
     guildId = discord.guildId;
   } catch (_) {}
   if (!token || !guildId) {

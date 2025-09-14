@@ -32,6 +32,7 @@ class WhatsAppService {
     this.lastAdminAlert = { key: null, at: 0 }; // Track last admin alert to de-duplicate
     this.lastIsNewLogin = null; // Cache of isNewLogin from connection updates
     this.contactNameCache = new Map(); // Cache resolved contact names by JID
+    this.startupConnectivityTimer = null; // Timer to notify if not connected shortly after startup
     
     Logger.info('WhatsAppService initialized');
   }
@@ -65,6 +66,22 @@ class WhatsAppService {
       
       // Check if we need to notify about missing session
       await this.checkAndNotifySessionStatus();
+
+      // Fallback: if not connected within 20s of init, ping admin once
+      if (this.startupConnectivityTimer) {
+        clearTimeout(this.startupConnectivityTimer);
+      }
+      this.startupConnectivityTimer = setTimeout(async () => {
+        try {
+          if (!this.isConnected && Date.now() > this.qrSuppressAlertsUntil) {
+            await this.sendAdminNotification(
+              'Not connected after startup. If this persists, use `/whatsapp_auth` to re-link the device.',
+              'warning'
+            );
+            this.setupHourlyReminder();
+          }
+        } catch (_) {}
+      }, 20000);
       
       this.isInitialized = true;
       Logger.success('WhatsApp service initialized successfully');
@@ -416,19 +433,30 @@ class WhatsAppService {
         } else {
           Logger.info('Connection closed but not logged out - waiting for reconnection...');
           // Don't immediately restart, let Baileys handle reconnection
+          try {
+            const alertKey = 'wa_connection_closed';
+            const withinQrCooldown = Date.now() <= this.qrSuppressAlertsUntil;
+            const suppress = this.qrRequestedOnDemand || withinQrCooldown || this.isShuttingDown;
+            if (!suppress && this.discordClient && this.config.discord.adminChannelId && (!this.canSendAdminAlert || this.canSendAdminAlert(alertKey))) {
+              await this.sendAdminNotification('Disconnected from WhatsApp (temporary). Will attempt to reconnect automatically.', 'warning');
+            } else if (suppress) {
+              Logger.info('Skipping temporary disconnect alert due to QR flow or shutdown');
+            }
+          } catch (_) {}
         }
       }
     });
 
-    // Message handling
+    // Message handling: only forward messages with conversational content
     this.sock.ev.on('messages.upsert', async (m) => {
-      const message = m.messages[0];
-      if (!message.key.fromMe && m.type === 'notify') {
-        // Incoming message from others
-        await this.messageHandler.handleMessage(message);
-      } else if (message.key.fromMe) {
-        // Message sent by this account
-        Logger.info('Message sent by this account detected');
+      const message = m.messages?.[0];
+      if (!message) return;
+      const msg = message.message || {};
+      const hasText = !!(msg.conversation || msg.extendedTextMessage?.text || msg.imageMessage?.caption || msg.videoMessage?.caption);
+      const hasMedia = !!(msg.imageMessage || msg.videoMessage || msg.audioMessage || msg.documentMessage);
+      const isNotify = m.type === 'notify';
+      // Only handle if there's text or media
+      if ((hasText || hasMedia) && (isNotify || message.key.fromMe)) {
         await this.messageHandler.handleMessage(message);
       }
     });
@@ -738,11 +766,13 @@ class WhatsAppService {
         };
       }
 
+      // If service isn't initialized yet, try to initialize on-demand
       if (!this.isInitialized) {
-        return {
-          success: false,
-          error: 'WhatsApp service is not initialized. Please restart the bot.'
-        };
+        try {
+          await this.initialize();
+        } catch (initErr) {
+          return { success: false, error: `Initialization failed: ${initErr?.message || initErr}` };
+        }
       }
 
       Logger.info('Manual QR code requested by admin - generating fresh QR code');
@@ -1155,12 +1185,8 @@ class WhatsAppMessageHandler {
         return;
       }
       
-      // Ignore sender key distribution messages (encryption setup)
+      // Ignore sender key distribution messages (encryption setup) quietly by default
       if (message.message?.senderKeyDistributionMessage) {
-        const chatDisplayName = this.whatsappService && typeof this.whatsappService.getChatDisplayName === 'function'
-          ? await this.whatsappService.getChatDisplayName(message.key.remoteJid)
-          : message.key.remoteJid;
-        Logger.debug(`Ignoring sender key distribution message from ${chatDisplayName}`);
         return;
       }
       
@@ -1172,6 +1198,41 @@ class WhatsAppMessageHandler {
       
       // Get message content
       const messageContent = message.message;
+      // Handle reactions as a special case
+      if (messageContent?.reactionMessage) {
+        const chatIdForChannel = message.key.remoteJid;
+        const discordChannelId = await this.postgresService.getDiscordChannelForChat(chatIdForChannel);
+        if (!discordChannelId) return;
+        const discordChannel = this.discordClient.channels.cache.get(discordChannelId);
+        if (!discordChannel) return;
+
+        const isFromMeReaction = message.key.fromMe || false;
+        const reactorName = isFromMeReaction
+          ? 'You'
+          : (this.whatsappService && typeof this.whatsappService.getSenderDisplayName === 'function'
+              ? await this.whatsappService.getSenderDisplayName(message)
+              : 'Unknown');
+
+        const emoji = messageContent.reactionMessage.text || messageContent.reactionMessage.emoji || '';
+        const referencedKey = messageContent.reactionMessage.key || {};
+        const originalId = referencedKey.id || '';
+
+        let originalSender = 'Unknown';
+        let originalContent = '[content unavailable]';
+        try {
+          if (originalId && typeof this.postgresService.getWhatsAppMessageById === 'function') {
+            const original = await this.postgresService.getWhatsAppMessageById(originalId);
+            if (original) {
+              originalSender = original.sender || original.chat_id || 'Unknown';
+              originalContent = original.content || '[content unavailable]';
+            }
+          }
+        } catch (_) {}
+
+        const text = `**${reactorName}** reacted with ${emoji} to:\n\n${originalSender}\n${originalContent}`;
+        await discordChannel.send(text);
+        return;
+      }
       const hasMedia = !!(messageContent?.imageMessage || messageContent?.videoMessage || 
                          messageContent?.audioMessage || messageContent?.documentMessage);
       const body = messageContent?.conversation || 
@@ -1179,6 +1240,12 @@ class WhatsAppMessageHandler {
                    messageContent?.imageMessage?.caption ||
                    messageContent?.videoMessage?.caption ||
                    '';
+
+      // If there is no text and no media, do not proxy this message
+      if (!hasMedia && !body) {
+        Logger.debug('Skipping WhatsApp message with no conversational content');
+        return;
+      }
       
       // Get chat display name for logging
       const chatDisplayName = this.whatsappService && typeof this.whatsappService.getChatDisplayName === 'function'
@@ -1254,7 +1321,11 @@ class WhatsAppMessageHandler {
       
       // Format the message for Discord
       const isFromMe = message.key.fromMe || false;
-      const senderName = isFromMe ? 'You' : (await this.getSenderDisplayName(message));
+      const senderName = isFromMe
+        ? 'You'
+        : (this.whatsappService && typeof this.whatsappService.getSenderDisplayName === 'function'
+            ? await this.whatsappService.getSenderDisplayName(message)
+            : 'Unknown');
       const timezone = process.env.TIMEZONE || 'UTC';
       const timestamp = new Date(message.messageTimestamp * 1000).toLocaleString('en-US', { 
         timeZone: timezone,
@@ -1380,7 +1451,14 @@ class WhatsAppMessageHandler {
           try {
             const storeMessagesFlag = await this.postgresService.getFeatureFlagCached('WHATSAPP_STORE_MESSAGES');
             if (storeMessagesFlag) {
-              await this.postgresService.storeWhatsAppMessage(message, sentMessage.id, this.config.discord.guildId);
+              const normalized = {
+                id: { _serialized: message.key?.id || '' },
+                from: message.key?.remoteJid,
+                _data: { notifyName: message.pushName || '' },
+                body,
+                type: Object.keys(messageContent || {})[0] || 'unknown'
+              };
+              await this.postgresService.storeWhatsAppMessage(normalized, sentMessage.id, this.config.discord.guildId);
             }
           } catch (_) {}
         } catch (mediaError) {
@@ -1403,7 +1481,14 @@ class WhatsAppMessageHandler {
         try {
           const storeMessagesFlag = await this.postgresService.getFeatureFlagCached('WHATSAPP_STORE_MESSAGES');
           if (storeMessagesFlag) {
-            await this.postgresService.storeWhatsAppMessage(message, sentMessage.id, this.config.discord.guildId);
+            const normalized = {
+              id: { _serialized: message.key?.id || '' },
+              from: message.key?.remoteJid,
+              _data: { notifyName: message.pushName || '' },
+              body: messageText,
+              type: 'chat'
+            };
+            await this.postgresService.storeWhatsAppMessage(normalized, sentMessage.id, this.config.discord.guildId);
           }
         } catch (_) {}
       }

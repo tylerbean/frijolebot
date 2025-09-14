@@ -45,18 +45,20 @@ export default function LinkTrackerPanel() {
       id: 'name',
       header: 'Channel',
       cell: ({ row }) => (
-        <Listbox value={row.original.id} onChange={(v) => updateRow(row.index, v)}>
-          <Listbox.Button className="rounded border px-3 py-2 w-64 text-left">
-            {channels.find(c => c.id === row.original.id)?.name ?? 'Select a channel'}
-          </Listbox.Button>
-          <Listbox.Options className="absolute z-50 mt-1 max-h-60 w-64 overflow-auto rounded border bg-white shadow">
-            {channels.map(c => (
-              <Listbox.Option key={c.id} value={c.id} className="px-3 py-2 ui-active:bg-indigo-50 cursor-pointer">
-                {c.name}
-              </Listbox.Option>
-            ))}
-          </Listbox.Options>
-        </Listbox>
+        <div className="relative inline-block">
+          <Listbox value={row.original.id} onChange={(v) => updateRow(row.index, v)}>
+            <Listbox.Button className="rounded border px-3 py-2 w-64 text-left">
+              {channels.find(c => c.id === row.original.id)?.name ?? 'Select a channel'}
+            </Listbox.Button>
+            <Listbox.Options className="absolute z-50 mt-1 max-h-60 w-64 overflow-auto rounded border bg-white shadow">
+              {channels.map(c => (
+                <Listbox.Option key={c.id} value={c.id} className="px-3 py-2 ui-active:bg-indigo-50 cursor-pointer">
+                  {c.name}
+                </Listbox.Option>
+              ))}
+            </Listbox.Options>
+          </Listbox>
+        </div>
       )
     }),
     columnHelper.display({
@@ -84,7 +86,7 @@ export default function LinkTrackerPanel() {
   const table = useReactTable({ data: rows, columns, getCoreRowModel: getCoreRowModel() });
 
   function addRow() {
-    setRows(prev => [...prev, { key: '', id: '', name: 'Select a channel' }]);
+    setRows(prev => [...prev, { key: '', id: '', name: 'Select a channel', isActive: true }]);
   }
   function removeRow(index: number) {
     setRows(prev => prev.filter((_, i) => i !== index));
@@ -96,6 +98,13 @@ export default function LinkTrackerPanel() {
     setRows(prev => prev.map((r, i) => i === index ? ({ ...r, isActive: active }) : r));
   }
 
+  const [toasts, setToasts] = useState<Array<{ id: number; kind: 'success' | 'error'; message: string }>>([]);
+  function addToast(message: string, kind: 'success' | 'error' = 'success') {
+    const id = Date.now() + Math.floor(Math.random() * 1000);
+    setToasts((t) => [...t, { id, kind, message }]);
+    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 3500);
+  }
+
   async function save() {
     setPending(true);
     try {
@@ -103,6 +112,7 @@ export default function LinkTrackerPanel() {
       const toSave = rows.filter(r => r.id).map(r => ({ channel_id: r.id, channel_name: channels.find(c => c.id === r.id)?.name || r.name, is_active: r.isActive ?? true }));
       const res2 = await fetch('/api/discord/monitored-channels', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ channels: toSave }) });
       if (!res2.ok) throw new Error('Failed to save monitored channels');
+      addToast('Monitored channels saved', 'success');
     } finally {
       setPending(false);
     }
@@ -110,6 +120,15 @@ export default function LinkTrackerPanel() {
 
   return (
     <div className="space-y-4">
+      {toasts.length > 0 && (
+        <div className="fixed right-4 top-4 z-50 space-y-2">
+          {toasts.map(t => (
+            <div key={t.id} className={`rounded px-4 py-2 text-white shadow ${t.kind === 'success' ? 'bg-green-600' : 'bg-red-600'}`}>
+              {t.message}
+            </div>
+          ))}
+        </div>
+      )}
       {/* Feature toggle moved to Admin page */}
 
       <div className="rounded border bg-white p-4 shadow-sm">
@@ -117,7 +136,7 @@ export default function LinkTrackerPanel() {
           <h3 className="font-medium">Monitored Channels</h3>
           <button onClick={addRow} className="rounded bg-indigo-600 px-3 py-2 text-white">Add</button>
         </div>
-        <div className="overflow-hidden rounded border">
+        <div className="rounded border" style={{ overflow: 'visible' }}>
           <table className="min-w-full text-sm">
             <thead className="bg-gray-50">
               {table.getHeaderGroups().map(hg => (

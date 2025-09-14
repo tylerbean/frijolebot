@@ -3,6 +3,7 @@ const QRCode = require('qrcode');
 const fs = require('fs');
 const path = require('path');
 
+// DEPRECATED: Use Admin UI and health endpoints for current chat visibility.
 class WhatsAppChatLister {
   constructor() {
     this.sock = null;

@@ -154,8 +154,7 @@ WhatsApp Message → WhatsAppService → MessageHandler → Discord Channel
    - Ensure the Discord channel ID is correct
 
 3. **Session Issues**:
-   - Clear local session files: `rm -rf .wwebjs_auth/`
-   - Check Baserow session table for expired sessions
+   - Clear local session files: `rm -rf auth_info_baileys/`
    - Restart the bot to generate a new QR code
 
 ### Debug Logging

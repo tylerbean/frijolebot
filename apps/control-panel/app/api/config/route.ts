@@ -62,62 +62,8 @@ export async function GET() {
 }
 
 export async function PUT(request: Request) {
-  try {
-    const body = await request.json();
-    const { getPool } = await import('../../../lib/db');
-    const pool = getPool();
-    const prevRes = await pool.query(`SELECT key, value FROM feature_flags WHERE key IN ('LINK_TRACKER_ENABLED','WHATSAPP_ENABLED','WHATSAPP_STORE_MESSAGES')`);
-    const prevMap: Record<string, boolean> = Object.fromEntries(prevRes.rows.map((r: any) => [r.key, !!r.value]));
-
-    const updates: Array<{ key: string, value: boolean }> = [];
-    if (typeof body.LINK_TRACKER_ENABLED === 'boolean') updates.push({ key: 'LINK_TRACKER_ENABLED', value: body.LINK_TRACKER_ENABLED });
-    if (typeof body.WHATSAPP_ENABLED === 'boolean') updates.push({ key: 'WHATSAPP_ENABLED', value: body.WHATSAPP_ENABLED });
-    if (typeof body.WHATSAPP_STORE_MESSAGES === 'boolean') updates.push({ key: 'WHATSAPP_STORE_MESSAGES', value: body.WHATSAPP_STORE_MESSAGES });
-
-    for (const u of updates) {
-      await pool.query(
-        `INSERT INTO feature_flags(key, value, updated_at) VALUES ($1, $2, CURRENT_TIMESTAMP)
-         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = CURRENT_TIMESTAMP`,
-        [u.key, u.value]
-      );
-    }
-
-    // Notify bot of feature toggles or reloads
-    try {
-      const base = process.env.WHATSAPP_BOT_HEALTH_URL || 'http://localhost:3000/whatsapp/chats';
-      const url = base.replace('/whatsapp/chats', '/admin/notify');
-      const token = process.env.ADMIN_NOTIFY_TOKEN || process.env.NEXT_PUBLIC_ADMIN_NOTIFY_TOKEN;
-      const events: Array<{ type: string, payload: any }> = [];
-      if (typeof body.LINK_TRACKER_ENABLED === 'boolean') {
-        const changed = prevMap.LINK_TRACKER_ENABLED !== body.LINK_TRACKER_ENABLED;
-        events.push({ type: changed ? 'feature_toggle' : 'feature_reloaded', payload: { name: 'LinkTracker', enabled: body.LINK_TRACKER_ENABLED } });
-      }
-      if (typeof body.WHATSAPP_ENABLED === 'boolean') {
-        const changed = prevMap.WHATSAPP_ENABLED !== body.WHATSAPP_ENABLED;
-        events.push({ type: changed ? 'feature_toggle' : 'feature_reloaded', payload: { name: 'WhatsApp', enabled: body.WHATSAPP_ENABLED } });
-      }
-      if (typeof body.WHATSAPP_STORE_MESSAGES === 'boolean') {
-        const changed = prevMap.WHATSAPP_STORE_MESSAGES !== body.WHATSAPP_STORE_MESSAGES;
-        events.push({ type: changed ? 'feature_toggle' : 'feature_reloaded', payload: { name: 'WhatsApp Store Messages', enabled: body.WHATSAPP_STORE_MESSAGES } });
-      }
-      for (const evt of events) {
-        await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...(token ? { 'x-admin-token': token } : {}) },
-          body: JSON.stringify(evt)
-        });
-      }
-      // Publish flag invalidation on Redis so bots refresh cached values immediately
-      try {
-        const { invalidateFlags } = await import('../../../lib/redis');
-        await invalidateFlags(updates.map(u => u.key));
-      } catch (_) {}
-    } catch (_) {}
-
-    return NextResponse.json({ ok: true });
-  } catch (e: any) {
-    return NextResponse.json({ error: e.message }, { status: 500 });
-  }
+  // Deprecated: feature toggles are managed in /api/admin/settings. Keep endpoint for legacy clients.
+  return NextResponse.json({ error: 'deprecated', message: 'Use /api/admin/settings instead.' }, { status: 410 });
 }
 
 
