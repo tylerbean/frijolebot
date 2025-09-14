@@ -324,7 +324,8 @@ class HealthCheckService {
      */
     async handleReadinessProbe(res) {
         const checks = await this.performHealthChecks();
-        const isReady = checks.discord.connected && checks.postgres.connected && this.isReady;
+        const discordRequired = !!(this.config && this.config.discord && this.config.discord.enabled);
+        const isReady = (discordRequired ? checks.discord.connected : true) && checks.postgres.connected && this.isReady;
 
         const status = {
             status: isReady ? 'ready' : 'not_ready',
@@ -342,7 +343,8 @@ class HealthCheckService {
      */
     async handleHealthCheck(res) {
         const checks = await this.performHealthChecks();
-        const isHealthy = checks.discord.connected && checks.postgres.connected && this.isReady;
+        const discordRequired = !!(this.config && this.config.discord && this.config.discord.enabled);
+        const isHealthy = (discordRequired ? checks.discord.connected : true) && checks.postgres.connected && this.isReady;
         const uptime = Date.now() - this.startTime;
 
         const status = {
