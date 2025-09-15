@@ -34,6 +34,11 @@ class WhatsAppService {
     this.contactNameCache = new Map(); // Cache resolved contact names by JID
     this.startupConnectivityTimer = null; // Timer to notify if not connected shortly after startup
     this.lastKeepAlive = null; // Track last keepalive timestamp for presence updates
+    this.lastProactiveActivity = null; // Track last proactive keepalive activity
+    this.reconnectAttempts = 0; // Track reconnection attempts
+    this.maxReconnectAttempts = 5; // Maximum reconnection attempts
+    this.reconnectDelay = 5000; // Initial reconnection delay in ms
+    this.reconnectTimer = null; // Timer for scheduled reconnections
 
     Logger.info('WhatsAppService initialized');
   }
@@ -124,7 +129,7 @@ class WhatsAppService {
       },
       printQRInTerminal: false,
       // Keepalive configuration to prevent session disconnects
-      keepAliveIntervalMs: 30000, // Send ping every 30 seconds
+      keepAliveIntervalMs: 15000, // Send ping every 15 seconds (more aggressive)
       connectTimeoutMs: 60000, // 60 second connection timeout
       defaultQueryTimeoutMs: 60000, // 60 second query timeout
       // Enhanced connection settings for stability
@@ -314,10 +319,16 @@ class WhatsAppService {
         this.isConnected = true;
         this.consecutiveAuthFailures = 0; // Reset failure counter on successful connection
         this.totalRestartAttempts = 0; // Reset restart counter on successful connection
+        this.reconnectAttempts = 0; // Reset reconnection attempts on successful connection
         this.sessionManager.qrCodeSent = false; // Reset QR code sent flag on successful connection
         this.qrRequestedOnDemand = false; // Reset on-demand QR flag on successful connection
         this.startupNotificationSent = false; // Reset startup notification flag on successful connection
         this.sessionManager.cancelSessionRestoreTimeout();
+        // Clear any pending reconnection timers
+        if (this.reconnectTimer) {
+          clearTimeout(this.reconnectTimer);
+          this.reconnectTimer = null;
+        }
         // Notify admin once on successful authentication (new or restored)
         try {
           const successMsg = (this.lastIsNewLogin === true)
@@ -459,17 +470,20 @@ class WhatsAppService {
             this.reconnectWithExistingSession();
           }, 3000); // Wait 3 seconds before reconnecting
         } else {
-          Logger.info('Connection closed but not logged out - waiting for reconnection...');
-          // Don't immediately restart, let Baileys handle reconnection
+          Logger.info('Connection closed but not logged out - initiating automatic reconnection...');
+          // Implement actual reconnection logic instead of just waiting
           try {
             const alertKey = 'wa_connection_closed';
             const withinQrCooldown = Date.now() <= this.qrSuppressAlertsUntil;
             const suppress = this.qrRequestedOnDemand || withinQrCooldown || this.isShuttingDown;
             if (!suppress && this.discordClient && this.config.discord.adminChannelId && (!this.canSendAdminAlert || this.canSendAdminAlert(alertKey))) {
-              await this.sendAdminNotification('Disconnected from WhatsApp (temporary). Will attempt to reconnect automatically.', 'warning');
+              await this.sendAdminNotification('Disconnected from WhatsApp (temporary). Attempting to reconnect automatically...', 'warning');
             } else if (suppress) {
               Logger.info('Skipping temporary disconnect alert due to QR flow or shutdown');
             }
+
+            // Start automatic reconnection process
+            this.scheduleReconnection();
           } catch (_) {}
         }
       }
@@ -532,9 +546,11 @@ class WhatsAppService {
         return;
       }
 
-      // Perform a lightweight keepalive operation every 5 minutes
+      // Perform more frequent keepalive operations
       const now = Date.now();
-      if (!this.lastKeepAlive || (now - this.lastKeepAlive) > 300000) { // 5 minutes
+
+      // Send presence updates every 2 minutes (more aggressive than 5 minutes)
+      if (!this.lastKeepAlive || (now - this.lastKeepAlive) > 120000) { // 2 minutes
         try {
           // Send a minimal presence update to maintain session activity
           await this.sock.sendPresenceUpdate('available');
@@ -543,6 +559,16 @@ class WhatsAppService {
         } catch (presenceError) {
           Logger.warning('WhatsApp presence keepalive failed:', presenceError.message);
           // Don't mark as disconnected for presence failures alone
+        }
+      }
+
+      // Perform proactive activity simulation every 10 minutes
+      if (!this.lastProactiveActivity || (now - this.lastProactiveActivity) > 600000) { // 10 minutes
+        try {
+          await this.performProactiveKeepalive();
+          this.lastProactiveActivity = now;
+        } catch (proactiveError) {
+          Logger.warning('Proactive keepalive failed:', proactiveError.message);
         }
       }
 
@@ -628,6 +654,68 @@ class WhatsAppService {
     }
   }
 
+  /**
+   * Perform proactive keepalive activity to simulate real usage
+   */
+  async performProactiveKeepalive() {
+    try {
+      if (!this.sock || !this.isConnected) return;
+
+      // Send typing indicator to self (doesn't create actual messages)
+      const userJid = this.sock.user.id;
+      await this.sock.sendPresenceUpdate('composing', userJid);
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      await this.sock.sendPresenceUpdate('available', userJid);
+
+      Logger.debug('Proactive keepalive activity sent (typing simulation)');
+    } catch (error) {
+      Logger.warning('Proactive keepalive failed:', error.message);
+    }
+  }
+
+  /**
+   * Schedule automatic reconnection with exponential backoff
+   */
+  scheduleReconnection() {
+    try {
+      // Don't reconnect if already attempting or if shutting down
+      if (this.reconnectTimer || this.isShuttingDown) {
+        Logger.debug('Reconnection already scheduled or shutting down');
+        return;
+      }
+
+      // Check if we've exceeded max attempts
+      if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+        Logger.error(`Maximum reconnection attempts (${this.maxReconnectAttempts}) reached. Manual intervention may be required.`);
+        this.sendAdminNotification(
+          `Failed to reconnect after ${this.maxReconnectAttempts} attempts. Please check the connection manually.`,
+          'error'
+        );
+        return;
+      }
+
+      this.reconnectAttempts++;
+      // Exponential backoff: 5s, 10s, 20s, 40s, 80s
+      const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1);
+
+      Logger.info(`Scheduling reconnection attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts} in ${delay}ms`);
+
+      this.reconnectTimer = setTimeout(async () => {
+        this.reconnectTimer = null;
+        try {
+          Logger.info(`Attempting automatic reconnection (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
+          await this.reconnectWithExistingSession();
+        } catch (error) {
+          Logger.error('Automatic reconnection failed:', error);
+          // Schedule next attempt if we haven't exceeded max attempts
+          this.scheduleReconnection();
+        }
+      }, delay);
+    } catch (error) {
+      Logger.error('Error scheduling reconnection:', error);
+    }
+  }
+
   async destroy() {
     try {
       // Set shutdown flag to prevent authentication failed messages during shutdown
@@ -637,6 +725,12 @@ class WhatsAppService {
       if (this.hourlyReminderInterval) {
         clearInterval(this.hourlyReminderInterval);
         this.hourlyReminderInterval = null;
+      }
+
+      // Clear any pending reconnection timers
+      if (this.reconnectTimer) {
+        clearTimeout(this.reconnectTimer);
+        this.reconnectTimer = null;
       }
       
       if (this.sock) {
@@ -1255,9 +1349,15 @@ class WhatsAppSessionManager {
 
   async handleConnectionLoss() {
     try {
-      Logger.warning('Connection lost, attempting to reconnect...');
-      await this.sendDiscordAlert('🔄 **WhatsApp Connection Lost**', 'Connection lost, attempting to reconnect...', 'connection_lost');
-      // TODO: Implement reconnection logic
+      Logger.warning('Connection lost, initiating automatic reconnection...');
+      await this.sendDiscordAlert('🔄 **WhatsApp Connection Lost**', 'Connection lost, attempting to reconnect automatically...', 'connection_lost');
+
+      // Start automatic reconnection process through main service
+      if (this.whatsappService && typeof this.whatsappService.scheduleReconnection === 'function') {
+        this.whatsappService.scheduleReconnection();
+      } else {
+        Logger.warning('Cannot schedule reconnection: main WhatsApp service not available');
+      }
     } catch (error) {
       Logger.error('Failed to handle connection loss:', error);
     }
