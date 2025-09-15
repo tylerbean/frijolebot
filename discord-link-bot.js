@@ -104,7 +104,7 @@ const client = new Client({
 
 // Initialize handlers (CommandHandler needs client, so it's initialized later)
 const reactionHandler = new ReactionHandler(postgresService, config);
-const messageHandler = new MessageHandler(postgresService);
+let messageHandler; // Will be initialized after WhatsApp service is ready
 let commandHandler; // Will be initialized after client is ready
 let healthCheckService; // Will be initialized after client is ready
 let whatsappService; // Will be initialized after client is ready
@@ -230,6 +230,10 @@ async function executeReadyLogic() {
     } else {
       Logger.info('WhatsApp service disabled');
     }
+
+    // Initialize message handler with WhatsApp service (after WhatsApp initialization)
+    messageHandler = new MessageHandler(postgresService, whatsappService);
+    Logger.info('Message handler initialized with WhatsApp integration');
     
     // After potential WhatsApp init, attach service for health endpoint
     healthCheckService.whatsappService = whatsappService;

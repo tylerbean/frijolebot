@@ -33,7 +33,8 @@ class WhatsAppService {
     this.lastIsNewLogin = null; // Cache of isNewLogin from connection updates
     this.contactNameCache = new Map(); // Cache resolved contact names by JID
     this.startupConnectivityTimer = null; // Timer to notify if not connected shortly after startup
-    
+    this.lastKeepAlive = null; // Track last keepalive timestamp for presence updates
+
     Logger.info('WhatsAppService initialized');
   }
 
@@ -105,6 +106,13 @@ class WhatsAppService {
         keys: makeCacheableSignalKeyStore(state.keys, Logger)
       },
       printQRInTerminal: false,
+      // Keepalive configuration to prevent session disconnects
+      keepAliveIntervalMs: 30000, // Send ping every 30 seconds
+      connectTimeoutMs: 60000, // 60 second connection timeout
+      defaultQueryTimeoutMs: 60000, // 60 second query timeout
+      // Enhanced connection settings for stability
+      retryRequestDelayMs: 250,
+      maxMsgRetryCount: 5,
       logger: {
         level: 'silent',
         child: () => ({ 
@@ -499,16 +507,107 @@ class WhatsAppService {
         return;
       }
 
-      // Baileys doesn't have a direct getState() method, 
-      // but we can check if the socket is still connected
+      // Check if socket is still connected
       if (!this.sock.user) {
         Logger.warning('WhatsApp connection health check failed - no user data');
         this.isConnected = false;
         await this.sessionManager.handleConnectionLoss();
+        return;
       }
+
+      // Perform a lightweight keepalive operation every 5 minutes
+      const now = Date.now();
+      if (!this.lastKeepAlive || (now - this.lastKeepAlive) > 300000) { // 5 minutes
+        try {
+          // Send a minimal presence update to maintain session activity
+          await this.sock.sendPresenceUpdate('available');
+          this.lastKeepAlive = now;
+          Logger.debug('WhatsApp keepalive presence update sent');
+        } catch (presenceError) {
+          Logger.warning('WhatsApp presence keepalive failed:', presenceError.message);
+          // Don't mark as disconnected for presence failures alone
+        }
+      }
+
     } catch (error) {
       Logger.error('Connection health check failed:', error);
       this.isConnected = false;
+    }
+  }
+
+  /**
+   * Send a text message to a WhatsApp chat
+   * @param {string} chatId - WhatsApp chat ID (e.g., "1234567890@s.whatsapp.net")
+   * @param {string} text - Message text to send
+   * @returns {Promise<Object|null>} Sent message object or null on failure
+   */
+  async sendTextMessage(chatId, text) {
+    try {
+      if (!this.sock || !this.isConnected) {
+        Logger.error('WhatsApp not connected, cannot send message');
+        return null;
+      }
+
+      Logger.info(`Sending text message to ${chatId}: ${text.substring(0, 100)}...`);
+
+      const sentMessage = await this.sock.sendMessage(chatId, { text });
+      Logger.success('Text message sent successfully');
+
+      return sentMessage;
+    } catch (error) {
+      Logger.error('Failed to send text message:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Send a media message to a WhatsApp chat
+   * @param {string} chatId - WhatsApp chat ID
+   * @param {Buffer} mediaBuffer - Media file buffer
+   * @param {string} mediaType - Media type ('image', 'video', 'document')
+   * @param {string} caption - Optional caption text
+   * @param {string} fileName - Original filename for documents
+   * @returns {Promise<Object|null>} Sent message object or null on failure
+   */
+  async sendMediaMessage(chatId, mediaBuffer, mediaType, caption = '', fileName = null) {
+    try {
+      if (!this.sock || !this.isConnected) {
+        Logger.error('WhatsApp not connected, cannot send media');
+        return null;
+      }
+
+      Logger.info(`Sending ${mediaType} message to ${chatId} (${mediaBuffer.length} bytes)`);
+
+      let messageContent = {};
+
+      if (mediaType === 'image') {
+        messageContent = {
+          image: mediaBuffer,
+          caption
+        };
+      } else if (mediaType === 'video') {
+        messageContent = {
+          video: mediaBuffer,
+          caption
+        };
+      } else if (mediaType === 'document') {
+        messageContent = {
+          document: mediaBuffer,
+          fileName: fileName || 'document',
+          caption
+        };
+      } else {
+        Logger.error(`Unsupported media type: ${mediaType}`);
+        return null;
+      }
+
+      const sentMessage = await this.sock.sendMessage(chatId, messageContent);
+      Logger.success(`${mediaType} message sent successfully`);
+
+      return sentMessage;
+    } catch (error) {
+      Logger.error(`Failed to send ${mediaType} message:`, error);
+      return null;
     }
   }
 

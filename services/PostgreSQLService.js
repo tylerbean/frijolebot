@@ -1028,6 +1028,26 @@ class PostgreSQLService {
     }
 
     /**
+     * Get WhatsApp chat ID for a Discord channel (reverse mapping)
+     * @param {string} discordChannelId - Discord channel ID
+     * @returns {Promise<string|null>} WhatsApp chat ID or null
+     */
+    async getWhatsAppChatForDiscordChannel(discordChannelId) {
+        try {
+            const result = await this.pool.query(`
+                SELECT chat_id FROM whatsapp_chats
+                WHERE discord_channel_id = $1 AND is_active = TRUE
+                LIMIT 1
+            `, [discordChannelId]);
+
+            return result.rows.length > 0 ? result.rows[0].chat_id : null;
+        } catch (error) {
+            Logger.error('Error getting WhatsApp chat for Discord channel:', error);
+            return null;
+        }
+    }
+
+    /**
      * Get a WhatsApp message by WhatsApp message ID (for reaction lookups)
      * @param {string} messageId - WhatsApp message ID
      * @returns {Promise<Object|null>} Message row or null
