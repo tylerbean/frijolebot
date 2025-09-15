@@ -94,13 +94,16 @@ class WhatsAppService {
 
   async createSocket() {
     // Initialize Baileys auth state
-    const { useMultiFileAuthState, makeWASocket, makeInMemoryStore } = this.baileys;
+    const { useMultiFileAuthState, makeWASocket, makeInMemoryStore, makeCacheableSignalKeyStore } = this.baileys;
     const { state, saveCreds } = await useMultiFileAuthState('./auth_info_baileys');
-    
+
     // Create WhatsApp socket with Baileys
     Logger.info('Creating Baileys socket with auth state...');
     this.sock = makeWASocket({
-      auth: state,
+      auth: {
+        creds: state.creds,
+        keys: makeCacheableSignalKeyStore(state.keys, Logger)
+      },
       printQRInTerminal: false,
       logger: {
         level: 'silent',
