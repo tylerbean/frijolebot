@@ -1,8 +1,7 @@
+export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { getPool } from '@/lib/db';
 import { getRedis } from '@/lib/redis';
-
-export const revalidate = 60; // Cache for 1 minute (more frequent for available chats)
 
 // Bridge to the bot: fetch live chats from the bot's health endpoint
 export async function GET() {

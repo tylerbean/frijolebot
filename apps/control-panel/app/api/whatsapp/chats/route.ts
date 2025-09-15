@@ -1,9 +1,8 @@
+export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { getPool } from '@/lib/db';
 import { getRedis } from '@/lib/redis';
 import { z } from 'zod';
-
-export const revalidate = 300; // Cache for 5 minutes
 
 async function tableHasColumn(client: any, table: string, column: string): Promise<boolean> {
   const res = await client.query(
