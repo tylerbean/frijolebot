@@ -103,7 +103,24 @@ class WhatsAppService {
     this.sock = makeWASocket({
       auth: {
         creds: state.creds,
-        keys: makeCacheableSignalKeyStore(state.keys, Logger)
+        keys: makeCacheableSignalKeyStore(state.keys, {
+          level: 'silent',
+          trace: () => {},
+          debug: () => {},
+          info: () => {},
+          warn: () => {},
+          error: () => {},
+          fatal: () => {},
+          child: () => ({
+            level: 'silent',
+            trace: () => {},
+            debug: () => {},
+            info: () => {},
+            warn: () => {},
+            error: () => {},
+            fatal: () => {}
+          })
+        })
       },
       printQRInTerminal: false,
       // Keepalive configuration to prevent session disconnects
