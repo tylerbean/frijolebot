@@ -163,3 +163,6 @@ auth_info_baileys/
 .cursor/
 .cursor/mcp.bak
 .cursor/mcp.json
+
+# Claude Code project instructions
+CLAUDE.md
