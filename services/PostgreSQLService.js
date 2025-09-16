@@ -168,9 +168,17 @@ class PostgreSQLService {
                     message_type VARCHAR(20),
                     discord_message_id VARCHAR(20),
                     discord_guild_id VARCHAR(20),
+                    reply_to_message_id VARCHAR(100),
+                    reply_to_discord_message_id VARCHAR(20),
                     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
                 )
             `);
+
+            // Add new columns for reply support (backfill for existing deployments)
+            try {
+                await this.pool.query(`ALTER TABLE whatsapp_messages ADD COLUMN IF NOT EXISTS reply_to_message_id VARCHAR(100)`);
+                await this.pool.query(`ALTER TABLE whatsapp_messages ADD COLUMN IF NOT EXISTS reply_to_discord_message_id VARCHAR(20)`);
+            } catch (_) {}
 
             // Create Discord monitored channels table
             await this.pool.query(`
@@ -243,8 +251,18 @@ class PostgreSQLService {
             `);
             
             await this.pool.query(`
-                CREATE INDEX IF NOT EXISTS idx_whatsapp_messages_discord_message 
+                CREATE INDEX IF NOT EXISTS idx_whatsapp_messages_discord_message
                 ON whatsapp_messages(discord_message_id)
+            `);
+
+            await this.pool.query(`
+                CREATE INDEX IF NOT EXISTS idx_whatsapp_messages_message_id
+                ON whatsapp_messages(message_id)
+            `);
+
+            await this.pool.query(`
+                CREATE INDEX IF NOT EXISTS idx_whatsapp_messages_reply_to
+                ON whatsapp_messages(reply_to_message_id)
             `);
 
             // Application settings (key -> JSONB)
@@ -1065,13 +1083,32 @@ class PostgreSQLService {
     }
 
     /**
+     * Get Discord message ID for a WhatsApp message ID (for replies and reactions)
+     * @param {string} whatsappMessageId - WhatsApp message ID
+     * @returns {Promise<string|null>} Discord message ID or null
+     */
+    async getDiscordMessageIdByWhatsAppId(whatsappMessageId) {
+        try {
+            const result = await this.pool.query(`
+                SELECT discord_message_id FROM whatsapp_messages WHERE message_id = $1 LIMIT 1
+            `, [whatsappMessageId]);
+            return result.rows.length > 0 ? result.rows[0].discord_message_id : null;
+        } catch (error) {
+            Logger.error('Error getting Discord message ID for WhatsApp message:', error);
+            return null;
+        }
+    }
+
+    /**
      * Store a WhatsApp message in PostgreSQL
      * @param {Object} messageData - WhatsApp message data
      * @param {string} discordMessageId - Discord message ID where it was posted
      * @param {string} discordGuildId - Discord Guild ID for multi-tenant support
+     * @param {string} replyToMessageId - WhatsApp message ID this is replying to (optional)
+     * @param {string} replyToDiscordMessageId - Discord message ID this is replying to (optional)
      * @returns {Promise<Object|null>} Created message record or null if failed
      */
-    async storeWhatsAppMessage(messageData, discordMessageId, discordGuildId = null) {
+    async storeWhatsAppMessage(messageData, discordMessageId, discordGuildId = null, replyToMessageId = null, replyToDiscordMessageId = null) {
         try {
             const messageRecord = {
                 message_id: messageData.id._serialized,
@@ -1081,14 +1118,16 @@ class PostgreSQLService {
                 message_type: messageData.type,
                 discord_message_id: discordMessageId,
                 discord_guild_id: discordGuildId,
+                reply_to_message_id: replyToMessageId,
+                reply_to_discord_message_id: replyToDiscordMessageId,
                 created_at: new Date().toISOString()
             };
 
             Logger.info('Storing WhatsApp message in PostgreSQL:', messageRecord);
 
             const result = await this.pool.query(`
-                INSERT INTO whatsapp_messages (message_id, chat_id, sender, content, message_type, discord_message_id, discord_guild_id, created_at)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                INSERT INTO whatsapp_messages (message_id, chat_id, sender, content, message_type, discord_message_id, discord_guild_id, reply_to_message_id, reply_to_discord_message_id, created_at)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
                 RETURNING *
             `, [
                 messageRecord.message_id,
@@ -1098,6 +1137,8 @@ class PostgreSQLService {
                 messageRecord.message_type,
                 messageRecord.discord_message_id,
                 messageRecord.discord_guild_id,
+                messageRecord.reply_to_message_id,
+                messageRecord.reply_to_discord_message_id,
                 messageRecord.created_at
             ]);
 

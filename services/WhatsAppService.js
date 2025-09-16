@@ -190,10 +190,13 @@ class WhatsAppService {
 
       if (!jid) return message.pushName || 'Unknown';
 
+      // Check cache first
       const cached = this.contactNameCache.get(jid);
       if (cached) return cached;
 
       let name = null;
+
+      // Try to get name from Baileys store first
       try {
         const contacts = this.store && this.store.contacts;
         if (contacts) {
@@ -212,8 +215,12 @@ class WhatsAppService {
         }
       } catch (_) {}
 
-      if (!name && message.pushName) name = message.pushName;
+      // Try pushName from message if no store contact found
+      if (!name && message.pushName) {
+        name = message.pushName;
+      }
 
+      // For group messages, try to get participant info from group metadata
       if (!name && isGroup && this.sock && typeof this.sock.groupMetadata === 'function') {
         try {
           const meta = await this.sock.groupMetadata(message.key.remoteJid);
@@ -226,11 +233,36 @@ class WhatsAppService {
         } catch (_) {}
       }
 
-      if (!name) name = String(jid).split('@')[0];
+      // Try to fetch contact info directly from WhatsApp if we still don't have a name
+      if (!name && this.sock && typeof this.sock.onWhatsApp === 'function') {
+        try {
+          const [onWaResult] = await this.sock.onWhatsApp(jid);
+          if (onWaResult && onWaResult.exists) {
+            name = onWaResult.name || null;
+          }
+        } catch (_) {}
+      }
 
+      // Fallback: use the phone number part before @
+      if (!name) {
+        name = String(jid).split('@')[0];
+        // Format phone numbers nicely (add + if it looks like a phone number)
+        if (/^\d+$/.test(name) && name.length > 10) {
+          name = `+${name}`;
+        }
+      }
+
+      // Cache the resolved name (cache for 1 hour to allow for updates)
       this.contactNameCache.set(jid, name);
+
+      // Set a timeout to clear this cache entry after 1 hour
+      setTimeout(() => {
+        this.contactNameCache.delete(jid);
+      }, 60 * 60 * 1000);
+
       return name;
-    } catch (_) {
+    } catch (error) {
+      Logger.warning('Error resolving sender display name:', error.message);
       return message.pushName || 'Unknown';
     }
   }
@@ -1419,37 +1451,7 @@ class WhatsAppMessageHandler {
       const messageContent = message.message;
       // Handle reactions as a special case
       if (messageContent?.reactionMessage) {
-        const chatIdForChannel = message.key.remoteJid;
-        const discordChannelId = await this.postgresService.getDiscordChannelForChat(chatIdForChannel);
-        if (!discordChannelId) return;
-        const discordChannel = this.discordClient.channels.cache.get(discordChannelId);
-        if (!discordChannel) return;
-
-        const isFromMeReaction = message.key.fromMe || false;
-        const reactorName = isFromMeReaction
-          ? 'You'
-          : (this.whatsappService && typeof this.whatsappService.getSenderDisplayName === 'function'
-              ? await this.whatsappService.getSenderDisplayName(message)
-              : 'Unknown');
-
-        const emoji = messageContent.reactionMessage.text || messageContent.reactionMessage.emoji || '';
-        const referencedKey = messageContent.reactionMessage.key || {};
-        const originalId = referencedKey.id || '';
-
-        let originalSender = 'Unknown';
-        let originalContent = '[content unavailable]';
-        try {
-          if (originalId && typeof this.postgresService.getWhatsAppMessageById === 'function') {
-            const original = await this.postgresService.getWhatsAppMessageById(originalId);
-            if (original) {
-              originalSender = original.sender || original.chat_id || 'Unknown';
-              originalContent = original.content || '[content unavailable]';
-            }
-          }
-        } catch (_) {}
-
-        const text = `**${reactorName}** reacted with ${emoji} to:\n\n${originalSender}\n${originalContent}`;
-        await discordChannel.send(text);
+        await this.handleReaction(message);
         return;
       }
       const hasMedia = !!(messageContent?.imageMessage || messageContent?.videoMessage || 
@@ -1507,13 +1509,53 @@ class WhatsAppMessageHandler {
       
       // Get message content
       const messageContent = message.message;
-      const hasMedia = !!(messageContent?.imageMessage || messageContent?.videoMessage || 
+      const hasMedia = !!(messageContent?.imageMessage || messageContent?.videoMessage ||
                          messageContent?.audioMessage || messageContent?.documentMessage);
-      const body = messageContent?.conversation || 
-                   messageContent?.extendedTextMessage?.text || 
+      const body = messageContent?.conversation ||
+                   messageContent?.extendedTextMessage?.text ||
                    messageContent?.imageMessage?.caption ||
                    messageContent?.videoMessage?.caption ||
                    '';
+
+      // Check if this message is a reply to another message
+      let isReply = false;
+      let replyToMessageId = null;
+      let replyToDiscordMessageId = null;
+      let quotedMessageInfo = null;
+
+      // Check for quoted/reply message in different message types
+      const contextInfo = messageContent?.extendedTextMessage?.contextInfo ||
+                         messageContent?.imageMessage?.contextInfo ||
+                         messageContent?.videoMessage?.contextInfo ||
+                         messageContent?.audioMessage?.contextInfo ||
+                         messageContent?.documentMessage?.contextInfo;
+
+      if (contextInfo && contextInfo.quotedMessage && contextInfo.stanzaId) {
+        isReply = true;
+        replyToMessageId = contextInfo.stanzaId;
+
+        // Try to get the Discord message ID for the quoted message
+        replyToDiscordMessageId = await this.postgresService.getDiscordMessageIdByWhatsAppId(replyToMessageId);
+
+        // Get quoted message info for display
+        const quotedMsg = contextInfo.quotedMessage;
+        const quotedText = quotedMsg.conversation ||
+                          quotedMsg.extendedTextMessage?.text ||
+                          quotedMsg.imageMessage?.caption ||
+                          quotedMsg.videoMessage?.caption ||
+                          '[Media]';
+
+        quotedMessageInfo = {
+          text: quotedText.length > 100 ? quotedText.substring(0, 100) + '...' : quotedText,
+          participant: contextInfo.participant || 'Unknown'
+        };
+
+        Logger.info('Detected reply message:', {
+          replyToId: replyToMessageId,
+          hasDiscordMapping: !!replyToDiscordMessageId,
+          quotedText: quotedMessageInfo.text
+        });
+      }
       
       Logger.info('Processing WhatsApp message:', {
         from: message.key.remoteJid,
@@ -1656,13 +1698,40 @@ class WhatsAppMessageHandler {
             name: filename
           };
           
-          const discordMessage = `**${senderName}** *(${timestamp})*\n📎 ${mimetype} file`;
-          
+          let discordMessage = `**${senderName}** *(${timestamp})*\n📎 ${mimetype} file`;
+
+          // Add reply formatting if this is a reply
+          if (isReply && quotedMessageInfo) {
+            const quotedSenderName = await this.whatsappService.getSenderDisplayName({
+              key: { participant: quotedMessageInfo.participant, remoteJid: chatId, fromMe: false },
+              pushName: quotedMessageInfo.participant
+            });
+            discordMessage = `**${senderName}** *(${timestamp})* replying to **${quotedSenderName}**:\n> ${quotedMessageInfo.text}\n\n📎 ${mimetype} file`;
+          }
+
           Logger.info('Sending media message to Discord...');
-          const sentMessage = await discordChannel.send({
+
+          // Prepare Discord message options
+          const messageOptions = {
             content: discordMessage,
             files: [attachment]
-          });
+          };
+
+          // If we have a Discord message ID to reply to, use Discord's reply feature
+          if (isReply && replyToDiscordMessageId) {
+            try {
+              const replyToMessage = await discordChannel.messages.fetch(replyToDiscordMessageId);
+              if (replyToMessage) {
+                messageOptions.reply = { messageReference: replyToMessage };
+                Logger.info(`Replying to Discord message: ${replyToDiscordMessageId}`);
+              }
+            } catch (fetchError) {
+              Logger.warning(`Could not fetch Discord message ${replyToDiscordMessageId} for reply:`, fetchError.message);
+              // Continue without Discord reply feature, but keep the visual reply formatting
+            }
+          }
+
+          const sentMessage = await discordChannel.send(messageOptions);
           
           Logger.success(`Media message sent to Discord: ${sentMessage.id}`);
           
@@ -1677,7 +1746,13 @@ class WhatsAppMessageHandler {
                 body,
                 type: Object.keys(messageContent || {})[0] || 'unknown'
               };
-              await this.postgresService.storeWhatsAppMessage(normalized, sentMessage.id, this.config.discord.guildId);
+              await this.postgresService.storeWhatsAppMessage(
+                normalized,
+                sentMessage.id,
+                this.config.discord.guildId,
+                replyToMessageId,
+                replyToDiscordMessageId
+              );
             }
           } catch (_) {}
         } catch (mediaError) {
@@ -1690,9 +1765,35 @@ class WhatsAppMessageHandler {
       } else {
         // Handle text messages
         const messageText = body || '[No text content]';
-        const discordMessage = `**${senderName}** *(${timestamp})*\n${messageText}`;
-        
-        const sentMessage = await discordChannel.send(discordMessage);
+        let discordMessage = `**${senderName}** *(${timestamp})*\n${messageText}`;
+
+        // Add reply formatting if this is a reply
+        if (isReply && quotedMessageInfo) {
+          const quotedSenderName = await this.whatsappService.getSenderDisplayName({
+            key: { participant: quotedMessageInfo.participant, remoteJid: chatId, fromMe: false },
+            pushName: quotedMessageInfo.participant
+          });
+          discordMessage = `**${senderName}** *(${timestamp})* replying to **${quotedSenderName}**:\n> ${quotedMessageInfo.text}\n\n${messageText}`;
+        }
+
+        // Prepare Discord message options
+        const messageOptions = { content: discordMessage };
+
+        // If we have a Discord message ID to reply to, use Discord's reply feature
+        if (isReply && replyToDiscordMessageId) {
+          try {
+            const replyToMessage = await discordChannel.messages.fetch(replyToDiscordMessageId);
+            if (replyToMessage) {
+              messageOptions.reply = { messageReference: replyToMessage };
+              Logger.info(`Replying to Discord message: ${replyToDiscordMessageId}`);
+            }
+          } catch (fetchError) {
+            Logger.warning(`Could not fetch Discord message ${replyToDiscordMessageId} for reply:`, fetchError.message);
+            // Continue without Discord reply feature, but keep the visual reply formatting
+          }
+        }
+
+        const sentMessage = await discordChannel.send(messageOptions);
         
         Logger.success(`Text message sent to Discord: ${sentMessage.id}`);
         
@@ -1707,7 +1808,13 @@ class WhatsAppMessageHandler {
               body: messageText,
               type: 'chat'
             };
-            await this.postgresService.storeWhatsAppMessage(normalized, sentMessage.id, this.config.discord.guildId);
+            await this.postgresService.storeWhatsAppMessage(
+              normalized,
+              sentMessage.id,
+              this.config.discord.guildId,
+              replyToMessageId,
+              replyToDiscordMessageId
+            );
           }
         } catch (_) {}
       }
@@ -1716,7 +1823,152 @@ class WhatsAppMessageHandler {
       Logger.error('Failed to process message:', error);
     }
   }
-  
+
+  /**
+   * Handle WhatsApp reactions and map them to Discord reactions
+   * @param {Object} message - WhatsApp reaction message
+   */
+  async handleReaction(message) {
+    try {
+      const messageContent = message.message;
+      const reactionMessage = messageContent.reactionMessage;
+
+      if (!reactionMessage) {
+        Logger.warning('Reaction message content is missing');
+        return;
+      }
+
+      const chatId = message.key.remoteJid;
+      const discordChannelId = await this.postgresService.getDiscordChannelForChat(chatId);
+      if (!discordChannelId) {
+        Logger.warning(`No Discord channel found for WhatsApp chat: ${chatId}`);
+        return;
+      }
+
+      const discordChannel = this.discordClient.channels.cache.get(discordChannelId);
+      if (!discordChannel) {
+        Logger.error(`Discord channel not found: ${discordChannelId}`);
+        return;
+      }
+
+      const emoji = reactionMessage.text || reactionMessage.emoji || '';
+      const referencedKey = reactionMessage.key || {};
+      const originalWhatsAppMessageId = referencedKey.id || '';
+
+      if (!originalWhatsAppMessageId) {
+        Logger.warning('Original WhatsApp message ID not found in reaction');
+        return;
+      }
+
+      // Get the Discord message ID for the original WhatsApp message
+      const originalDiscordMessageId = await this.postgresService.getDiscordMessageIdByWhatsAppId(originalWhatsAppMessageId);
+
+      if (!originalDiscordMessageId) {
+        Logger.warning(`No Discord message found for WhatsApp message ID: ${originalWhatsAppMessageId}`);
+
+        // Fallback: send a text message about the reaction
+        const isFromMeReaction = message.key.fromMe || false;
+        const reactorName = isFromMeReaction
+          ? 'You'
+          : (this.whatsappService && typeof this.whatsappService.getSenderDisplayName === 'function'
+              ? await this.whatsappService.getSenderDisplayName(message)
+              : 'Unknown');
+
+        const fallbackText = `**${reactorName}** reacted with ${emoji} to a message (original message not found in Discord)`;
+        await discordChannel.send(fallbackText);
+        return;
+      }
+
+      try {
+        // Fetch the original Discord message
+        const originalDiscordMessage = await discordChannel.messages.fetch(originalDiscordMessageId);
+
+        if (!originalDiscordMessage) {
+          Logger.warning(`Could not fetch Discord message: ${originalDiscordMessageId}`);
+          return;
+        }
+
+        // Map WhatsApp emoji to Discord-compatible emoji
+        const discordEmoji = this.mapWhatsAppEmojiToDiscord(emoji);
+
+        // Check if this is a reaction removal (empty emoji)
+        if (!emoji || emoji.trim() === '') {
+          // For reaction removal, we'll need to remove all reactions by this user
+          // Since Discord doesn't provide a direct way to remove specific user reactions,
+          // we'll just log this for now
+          Logger.info(`Reaction removal detected for message ${originalDiscordMessageId}`);
+          return;
+        }
+
+        // Add the reaction to the Discord message
+        await originalDiscordMessage.react(discordEmoji);
+
+        Logger.success(`Added reaction ${discordEmoji} to Discord message ${originalDiscordMessageId}`);
+
+      } catch (reactionError) {
+        Logger.error(`Failed to add reaction to Discord message ${originalDiscordMessageId}:`, reactionError.message);
+
+        // Fallback: send a text message about the reaction
+        const isFromMeReaction = message.key.fromMe || false;
+        const reactorName = isFromMeReaction
+          ? 'You'
+          : (this.whatsappService && typeof this.whatsappService.getSenderDisplayName === 'function'
+              ? await this.whatsappService.getSenderDisplayName(message)
+              : 'Unknown');
+
+        const fallbackText = `**${reactorName}** reacted with ${emoji} to a message`;
+        await discordChannel.send(fallbackText);
+      }
+
+    } catch (error) {
+      Logger.error('Failed to handle WhatsApp reaction:', error);
+    }
+  }
+
+  /**
+   * Map WhatsApp emoji to Discord-compatible emoji
+   * @param {string} whatsappEmoji - WhatsApp emoji
+   * @returns {string} Discord-compatible emoji
+   */
+  mapWhatsAppEmojiToDiscord(whatsappEmoji) {
+    // Common emoji mappings
+    const emojiMap = {
+      '👍': '👍',
+      '👎': '👎',
+      '❤️': '❤️',
+      '😂': '😂',
+      '😮': '😮',
+      '😢': '😢',
+      '😡': '😡',
+      '🔥': '🔥',
+      '💯': '💯',
+      '🎉': '🎉',
+      '💔': '💔',
+      '😍': '😍',
+      '🤔': '🤔',
+      '👏': '👏',
+      '🙏': '🙏',
+      '✅': '✅',
+      '❌': '❌',
+      '⭐': '⭐',
+      '💖': '💖',
+      '🤣': '🤣',
+      '😊': '😊',
+      '😘': '😘',
+      '🥰': '🥰',
+      '😭': '😭',
+      '🤮': '🤮',
+      '🤯': '🤯',
+      '🙄': '🙄',
+      '😴': '😴',
+      '🤩': '🤩',
+      '🤪': '🤪'
+    };
+
+    // Return mapped emoji or original if no mapping found
+    return emojiMap[whatsappEmoji] || whatsappEmoji;
+  }
+
 }
 
 module.exports = WhatsAppService;
