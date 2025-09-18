@@ -21,7 +21,7 @@ export async function GET() {
 
   // Try live list from the bot first (Baileys); fallback to DB if unavailable
   try {
-    const url = process.env.WHATSAPP_BOT_HEALTH_URL || 'http://localhost:3000/whatsapp/chats';
+    const url = process.env.WHATSAPP_BOT_HEALTH_URL || 'http://localhost:3001/whatsapp/chats';
     const controller = new AbortController();
     const t = setTimeout(() => controller.abort(), 5000);
     const res = await fetch(url, { cache: 'no-store', signal: controller.signal }).catch(() => null);
