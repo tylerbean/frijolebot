@@ -152,10 +152,43 @@ async function registerCommands(token) {
 async function resolveChannelById(id) {
     if (!id) return null;
     try {
+        // First try to resolve within the configured guild to avoid cross-guild issues
+        if (settings.discord?.guildId) {
+            try {
+                const guild = client.guilds.cache.get(settings.discord.guildId);
+                if (guild) {
+                    const guildChannel = guild.channels.cache.get(id);
+                    if (guildChannel) {
+                        Logger.debug(`Found channel ${id} in configured guild ${settings.discord.guildId}`);
+                        return guildChannel;
+                    }
+                    // Try fetching from the specific guild
+                    try {
+                        const fetchedGuildChannel = await guild.channels.fetch(id);
+                        if (fetchedGuildChannel) {
+                            Logger.debug(`Fetched channel ${id} from configured guild ${settings.discord.guildId}`);
+                            return fetchedGuildChannel;
+                        }
+                    } catch (e) {
+                        Logger.debug(`Could not fetch channel ${id} from guild ${settings.discord.guildId}: ${e.message}`);
+                    }
+                }
+            } catch (e) {
+                Logger.debug(`Error resolving channel within guild: ${e.message}`);
+            }
+        }
+
+        // Fallback to global search (for backward compatibility)
         const cached = client.channels.cache.get(id);
-        if (cached) return cached;
+        if (cached) {
+            Logger.warning(`Channel ${id} found globally but not in configured guild - this may cause cross-guild issues`);
+            return cached;
+        }
         try {
             const fetched = await client.channels.fetch(id);
+            if (fetched) {
+                Logger.warning(`Channel ${id} fetched globally but not in configured guild - this may cause cross-guild issues`);
+            }
             return fetched || null;
         } catch (e) {
             return null;
@@ -304,7 +337,7 @@ async function executeReadyLogic() {
 async function sendShutdownNotice(message) {
     try {
         if (client && client.isReady && client.isReady()) {
-            const ch = client.channels.cache.get(settings.discord.adminChannelId);
+            const ch = await resolveChannelById(settings.discord.adminChannelId);
             if (ch) {
                 await ch.send(message);
             }

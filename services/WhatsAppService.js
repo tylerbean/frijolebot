@@ -702,7 +702,7 @@ class WhatsAppService {
             if (this.discordClient && this.config.discord.adminChannelId && canAlert) {
               Logger.error('🚨 [MAIN SERVICE] SENDING Discord authentication failed message!');
               try {
-                const channel = this.discordClient.channels.cache.get(this.config.discord.adminChannelId);
+                const channel = await this.resolveAdminChannel(this.config.discord.adminChannelId);
                 if (channel) {
                   await channel.send(`❌ **WhatsApp Authentication Failed**\nAuthentication failed: Logged out (attempt ${this.consecutiveAuthFailures}/${this.maxAuthFailures})`);
                   Logger.error('🚨 [MAIN SERVICE] Discord message SENT!');
@@ -1237,6 +1237,61 @@ class WhatsAppService {
   }
 
   /**
+   * Resolve admin channel by ID with guild-scoped lookup
+   * @param {string} adminChannelId - Channel ID to resolve
+   * @returns {Promise<Channel|null>} Channel object or null if not found
+   */
+  async resolveAdminChannel(adminChannelId) {
+    if (!adminChannelId || !this.discordClient) return null;
+
+    try {
+      // First try to resolve within the configured guild to avoid cross-guild issues
+      if (this.config.discord?.guildId) {
+        try {
+          const guild = this.discordClient.guilds.cache.get(this.config.discord.guildId);
+          if (guild) {
+            const guildChannel = guild.channels.cache.get(adminChannelId);
+            if (guildChannel) {
+              Logger.debug(`Found admin channel ${adminChannelId} in configured guild ${this.config.discord.guildId}`);
+              return guildChannel;
+            }
+            // Try fetching from the specific guild
+            try {
+              const fetchedGuildChannel = await guild.channels.fetch(adminChannelId);
+              if (fetchedGuildChannel) {
+                Logger.debug(`Fetched admin channel ${adminChannelId} from configured guild ${this.config.discord.guildId}`);
+                return fetchedGuildChannel;
+              }
+            } catch (e) {
+              Logger.debug(`Could not fetch admin channel ${adminChannelId} from guild ${this.config.discord.guildId}: ${e.message}`);
+            }
+          }
+        } catch (e) {
+          Logger.debug(`Error resolving admin channel within guild: ${e.message}`);
+        }
+      }
+
+      // Fallback to global search (for backward compatibility)
+      const cached = this.discordClient.channels.cache.get(adminChannelId);
+      if (cached) {
+        Logger.warning(`Admin channel ${adminChannelId} found globally but not in configured guild - this may cause cross-guild issues`);
+        return cached;
+      }
+      try {
+        const fetched = await this.discordClient.channels.fetch(adminChannelId);
+        if (fetched) {
+          Logger.warning(`Admin channel ${adminChannelId} fetched globally but not in configured guild - this may cause cross-guild issues`);
+        }
+        return fetched || null;
+      } catch (e) {
+        return null;
+      }
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /**
    * Send notification to admin channel about WhatsApp status
    * @param {string} message - Message to send
    * @param {string} type - Type of notification (info, warning, error)
@@ -1254,7 +1309,7 @@ class WhatsAppService {
         return;
       }
 
-      const adminChannel = this.discordClient.channels.cache.get(adminChannelId);
+      const adminChannel = await this.resolveAdminChannel(adminChannelId);
       if (!adminChannel) {
         Logger.warning(`Admin channel ${adminChannelId} not found`);
         return;
@@ -1323,7 +1378,7 @@ class WhatsAppService {
         return;
       }
 
-      const adminChannel = this.discordClient.channels.cache.get(adminChannelId);
+      const adminChannel = await this.resolveAdminChannel(adminChannelId);
       if (!adminChannel) {
         Logger.warning(`Admin channel ${adminChannelId} not found`);
         return;
@@ -1538,7 +1593,7 @@ class WhatsAppSessionManager {
       Logger.info('Admin channel ID available:', !!this.config.discord.adminChannelId);
       
       if (this.discordClient && this.config.discord.adminChannelId) {
-        const adminChannel = this.discordClient.channels.cache.get(this.config.discord.adminChannelId);
+        const adminChannel = await this.resolveAdminChannel(this.config.discord.adminChannelId);
         if (adminChannel) {
           // Check if the QR code is already base64 image data
         if (qr.startsWith('data:image/') || qr.startsWith('iVBORw0KGgo')) {
@@ -1765,7 +1820,7 @@ class WhatsAppSessionManager {
         if (key && typeof this.canSendAdminAlert === 'function' && !this.canSendAdminAlert(key)) {
           return;
         }
-        const adminChannel = this.discordClient.channels.cache.get(this.config.discord.adminChannelId);
+        const adminChannel = await this.resolveAdminChannel(this.config.discord.adminChannelId);
         if (adminChannel) {
           await adminChannel.send({
             content: `${title}\n\n${message}`
