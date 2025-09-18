@@ -1,9 +1,11 @@
 # Use Node.js 20 Alpine for Baileys compatibility
 FROM node:20-alpine AS base
 
-# Install system dependencies (minimal for Baileys)
+# Install system dependencies (minimal for Baileys + Next.js build)
 RUN apk add --no-cache \
-    ca-certificates
+    ca-certificates \
+    gcompat \
+    libc6-compat
 
 # Set working directory
 WORKDIR /app
@@ -36,6 +38,7 @@ USER botuser
 # Build the UI if a valid package.json exists, otherwise skip (use prebuilt .next)
 WORKDIR /app/apps/control-panel
 ENV NEXT_TELEMETRY_DISABLED=1
+ENV NEXT_SWC_DISABLE=1
 RUN npm install --no-audit --no-fund && npm run build
 
 FROM node:20-alpine AS runner
