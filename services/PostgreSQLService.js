@@ -157,6 +157,20 @@ class PostgreSQLService {
                 await this.pool.query(`ALTER TABLE whatsapp_chats ADD COLUMN IF NOT EXISTS chat_name VARCHAR(255)`);
             } catch (_) {}
 
+            // Backfill: add discord_guild_id if missing (for multi-tenant support)
+            try {
+                await this.pool.query(`ALTER TABLE whatsapp_chats ADD COLUMN IF NOT EXISTS discord_guild_id VARCHAR(20)`);
+            } catch (_) {}
+
+            // Add unique constraint on discord_channel_id to prevent multiple mappings to same channel
+            try {
+                await this.pool.query(`
+                    CREATE UNIQUE INDEX IF NOT EXISTS whatsapp_chats_discord_channel_unique
+                    ON whatsapp_chats (discord_channel_id)
+                    WHERE is_active = TRUE
+                `);
+            } catch (_) {}
+
             // Create WhatsApp Messages table
             await this.pool.query(`
                 CREATE TABLE IF NOT EXISTS whatsapp_messages (
@@ -179,6 +193,25 @@ class PostgreSQLService {
                 await this.pool.query(`ALTER TABLE whatsapp_messages ADD COLUMN IF NOT EXISTS reply_to_message_id VARCHAR(100)`);
                 await this.pool.query(`ALTER TABLE whatsapp_messages ADD COLUMN IF NOT EXISTS reply_to_discord_message_id VARCHAR(20)`);
             } catch (_) {}
+
+            // Add message_key column for reverse reaction flow (backfill for existing deployments)
+            try {
+                await this.pool.query(`ALTER TABLE whatsapp_messages ADD COLUMN IF NOT EXISTS message_key TEXT`);
+            } catch (_) {}
+
+            // Create WhatsApp Display Names table for pushName mapping
+            await this.pool.query(`
+                CREATE TABLE IF NOT EXISTS whatsapp_display_names (
+                    id SERIAL PRIMARY KEY,
+                    whatsapp_id VARCHAR(100) NOT NULL,
+                    whatsapp_displayname VARCHAR(255),
+                    whatsapp_chat VARCHAR(100) NOT NULL,
+                    last_seen TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(whatsapp_id, whatsapp_chat)
+                )
+            `);
 
             // Create Discord monitored channels table
             await this.pool.query(`
@@ -265,6 +298,21 @@ class PostgreSQLService {
                 ON whatsapp_messages(reply_to_message_id)
             `);
 
+            await this.pool.query(`
+                CREATE INDEX IF NOT EXISTS idx_whatsapp_display_names_whatsapp_id
+                ON whatsapp_display_names(whatsapp_id)
+            `);
+
+            await this.pool.query(`
+                CREATE INDEX IF NOT EXISTS idx_whatsapp_display_names_chat
+                ON whatsapp_display_names(whatsapp_chat)
+            `);
+
+            await this.pool.query(`
+                CREATE INDEX IF NOT EXISTS idx_whatsapp_display_names_last_seen
+                ON whatsapp_display_names(last_seen)
+            `);
+
             // Application settings (key -> JSONB)
             await this.pool.query(`
                 CREATE TABLE IF NOT EXISTS app_settings (
@@ -285,8 +333,7 @@ class PostgreSQLService {
             // Seed from env on first run if keys absent
             const seeds = [
                 { key: 'LINK_TRACKER_ENABLED', val: String(process.env.LINK_TRACKER_ENABLED) === 'true' },
-                { key: 'WHATSAPP_ENABLED', val: String(process.env.WHATSAPP_ENABLED) === 'true' },
-                { key: 'WHATSAPP_STORE_MESSAGES', val: String(process.env.WHATSAPP_STORE_MESSAGES) === 'true' }
+                { key: 'WHATSAPP_ENABLED', val: String(process.env.WHATSAPP_ENABLED) === 'true' }
             ];
             for (const s of seeds) {
                 await this.pool.query(
@@ -1089,13 +1136,89 @@ class PostgreSQLService {
      */
     async getDiscordMessageIdByWhatsAppId(whatsappMessageId) {
         try {
-            const result = await this.pool.query(`
+            // First try direct lookup
+            let result = await this.pool.query(`
                 SELECT discord_message_id FROM whatsapp_messages WHERE message_id = $1 LIMIT 1
             `, [whatsappMessageId]);
-            return result.rows.length > 0 ? result.rows[0].discord_message_id : null;
+
+            if (result.rows.length > 0) {
+                Logger.debug(`Found Discord message ID for WhatsApp message ID: ${whatsappMessageId}`);
+                return result.rows[0].discord_message_id;
+            }
+
+            // Debug: Let's see what message IDs we actually have in the database
+            const debugResult = await this.pool.query(`
+                SELECT message_id FROM whatsapp_messages ORDER BY created_at DESC LIMIT 10
+            `);
+            Logger.debug(`Recent WhatsApp message IDs in database:`, debugResult.rows.map(r => r.message_id));
+            Logger.warning(`No Discord message found for WhatsApp message ID: ${whatsappMessageId}`);
+
+            return null;
         } catch (error) {
             Logger.error('Error getting Discord message ID for WhatsApp message:', error);
             return null;
+        }
+    }
+
+    /**
+     * Get WhatsApp message information by Discord message ID for reverse reaction flow
+     * @param {string} discordMessageId - The Discord message ID to look up
+     * @returns {Promise<Object|null>} WhatsApp message info with message_id, chat_id, message_key, or null if not found
+     */
+    async getWhatsAppMessageByDiscordId(discordMessageId) {
+        try {
+            const result = await this.pool.query(`
+                SELECT message_id, chat_id, message_key FROM whatsapp_messages
+                WHERE discord_message_id = $1 LIMIT 1
+            `, [discordMessageId]);
+
+            if (result.rows.length > 0) {
+                const row = result.rows[0];
+                Logger.debug(`Found WhatsApp message for Discord message ID: ${discordMessageId}`);
+                Logger.debug(`Raw row data:`, {
+                    message_id: row.message_id,
+                    chat_id: row.chat_id,
+                    message_key: row.message_key
+                });
+
+                const messageKey = row.message_key ? JSON.parse(row.message_key) : null;
+                Logger.debug(`Parsed message key:`, messageKey);
+
+                const whatsappInfo = {
+                    whatsappMessageId: row.message_id,
+                    chatId: row.chat_id,
+                    messageKey: messageKey
+                };
+
+                Logger.debug(`Returning WhatsApp info:`, whatsappInfo);
+                return whatsappInfo;
+            }
+
+            Logger.debug(`No WhatsApp message found for Discord message ID: ${discordMessageId}`);
+            return null;
+        } catch (error) {
+            Logger.error('Error getting WhatsApp message by Discord ID:', error);
+            return null;
+        }
+    }
+
+    /**
+     * Clean up old WhatsApp message records (older than specified days)
+     * @param {number} daysOld - Delete records older than this many days (default: 90)
+     * @returns {Promise<number>} Number of records deleted
+     */
+    async cleanupOldWhatsAppMessages(daysOld = 90) {
+        try {
+            const result = await this.pool.query(`
+                DELETE FROM whatsapp_messages
+                WHERE created_at < NOW() - INTERVAL '${daysOld} days'
+            `);
+            const deletedCount = result.rowCount || 0;
+            Logger.info(`Cleaned up ${deletedCount} WhatsApp message records older than ${daysOld} days`);
+            return deletedCount;
+        } catch (error) {
+            Logger.error('Error cleaning up old WhatsApp messages:', error);
+            return 0;
         }
     }
 
@@ -1120,14 +1243,15 @@ class PostgreSQLService {
                 discord_guild_id: discordGuildId,
                 reply_to_message_id: replyToMessageId,
                 reply_to_discord_message_id: replyToDiscordMessageId,
+                message_key: JSON.stringify(messageData.key), // Store complete message key for reverse reactions
                 created_at: new Date().toISOString()
             };
 
             Logger.info('Storing WhatsApp message in PostgreSQL:', messageRecord);
 
             const result = await this.pool.query(`
-                INSERT INTO whatsapp_messages (message_id, chat_id, sender, content, message_type, discord_message_id, discord_guild_id, reply_to_message_id, reply_to_discord_message_id, created_at)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                INSERT INTO whatsapp_messages (message_id, chat_id, sender, content, message_type, discord_message_id, discord_guild_id, reply_to_message_id, reply_to_discord_message_id, message_key, created_at)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
                 RETURNING *
             `, [
                 messageRecord.message_id,
@@ -1139,6 +1263,7 @@ class PostgreSQLService {
                 messageRecord.discord_guild_id,
                 messageRecord.reply_to_message_id,
                 messageRecord.reply_to_discord_message_id,
+                messageRecord.message_key,
                 messageRecord.created_at
             ]);
 
@@ -1366,6 +1491,74 @@ class PostgreSQLService {
             }
         } catch (error) {
             Logger.error('Error cleaning up expired sessions:', error);
+        }
+    }
+
+    /**
+     * Upsert WhatsApp display name mapping
+     * @param {string} whatsappId - WhatsApp user ID (phone number/jid)
+     * @param {string} displayName - Display name from pushName
+     * @param {string} chatId - WhatsApp chat ID where this name was seen
+     * @returns {Promise<boolean>} Success status
+     */
+    async upsertWhatsAppDisplayName(whatsappId, displayName, chatId) {
+        try {
+            await this.pool.query(`
+                INSERT INTO whatsapp_display_names (whatsapp_id, whatsapp_displayname, whatsapp_chat, last_seen)
+                VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
+                ON CONFLICT (whatsapp_id, whatsapp_chat)
+                DO UPDATE SET
+                    whatsapp_displayname = EXCLUDED.whatsapp_displayname,
+                    last_seen = CURRENT_TIMESTAMP,
+                    updated_at = CURRENT_TIMESTAMP
+            `, [whatsappId, displayName, chatId]);
+
+            Logger.debug(`Upserted display name mapping: ${whatsappId} -> "${displayName}" in chat ${chatId}`);
+            return true;
+        } catch (error) {
+            Logger.error('Error upserting WhatsApp display name:', error);
+            return false;
+        }
+    }
+
+    /**
+     * Get WhatsApp display name for a user ID, optionally filtered by chat
+     * @param {string} whatsappId - WhatsApp user ID (phone number/jid)
+     * @param {string} chatId - Optional chat ID to filter by
+     * @returns {Promise<string|null>} Display name or null if not found
+     */
+    async getWhatsAppDisplayName(whatsappId, chatId = null) {
+        try {
+            let query, params;
+            if (chatId) {
+                query = `
+                    SELECT whatsapp_displayname FROM whatsapp_display_names
+                    WHERE whatsapp_id = $1 AND whatsapp_chat = $2
+                    ORDER BY last_seen DESC LIMIT 1
+                `;
+                params = [whatsappId, chatId];
+            } else {
+                query = `
+                    SELECT whatsapp_displayname FROM whatsapp_display_names
+                    WHERE whatsapp_id = $1
+                    ORDER BY last_seen DESC LIMIT 1
+                `;
+                params = [whatsappId];
+            }
+
+            const result = await this.pool.query(query, params);
+
+            if (result.rows.length > 0) {
+                const displayName = result.rows[0].whatsapp_displayname;
+                Logger.debug(`Found display name for ${whatsappId}: "${displayName}"`);
+                return displayName;
+            }
+
+            Logger.debug(`No display name found for ${whatsappId}${chatId ? ` in chat ${chatId}` : ''}`);
+            return null;
+        } catch (error) {
+            Logger.error('Error getting WhatsApp display name:', error);
+            return null;
         }
     }
 

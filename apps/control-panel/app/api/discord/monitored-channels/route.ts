@@ -66,15 +66,18 @@ export async function PUT(request: Request) {
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
+      const guildId = await getGuildId();
+      if (!guildId) throw new Error('Guild ID not found');
+
+      // First, delete all existing monitored channels for this guild
+      await client.query('DELETE FROM discord_links_channels WHERE guild_id = $1', [guildId]);
+
+      // Then insert the new set of channels
       for (const row of parsed.data.channels) {
         if (!row || !row.channel_id) continue;
-        const guildId = await getGuildId();
-        if (!guildId) continue;
         await client.query(`
           INSERT INTO discord_links_channels (guild_id, channel_id, channel_name, is_active)
           VALUES ($1, $2, $3, COALESCE($4, TRUE))
-          ON CONFLICT (guild_id, channel_id)
-          DO UPDATE SET channel_name = EXCLUDED.channel_name, is_active = EXCLUDED.is_active, updated_at = CURRENT_TIMESTAMP
         `, [guildId, row.channel_id, row.channel_name || null, row.is_active !== false]);
       }
       await client.query('COMMIT');

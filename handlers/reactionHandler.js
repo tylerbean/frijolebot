@@ -5,6 +5,15 @@ class ReactionHandler {
     constructor(postgresService, config) {
         this.postgresService = postgresService;
         this.config = config;
+        this.whatsappService = null; // Will be set after WhatsApp service is initialized
+    }
+
+    /**
+     * Set the WhatsApp service instance for reverse reaction flow
+     * @param {WhatsAppService} whatsappService - The WhatsApp service instance
+     */
+    setWhatsAppService(whatsappService) {
+        this.whatsappService = whatsappService;
     }
 
     async handleReactionAdd(reaction, user) {
@@ -42,6 +51,9 @@ class ReactionHandler {
                 await this.handleDMReaction(reaction, user);
                 return;
             }
+
+            // Check for reverse reaction flow (Discord → WhatsApp)
+            await this.handleReverseReaction(reaction, user, false); // false = add reaction
 
             // Handle channel reactions for marking links as read
             // Use DB-backed monitored channels via cache, with legacy fallback to config.discord.channelsToMonitor
@@ -127,7 +139,10 @@ class ReactionHandler {
                 await this.handleDMReactionRemove(reaction, user);
                 return;
             }
-            
+
+            // Check for reverse reaction flow (Discord → WhatsApp)
+            await this.handleReverseReaction(reaction, user, true); // true = remove reaction
+
             // Only process reactions in monitored channels (DB-backed; with legacy fallback)
             try {
                 const guildId = reaction.message.guild?.id;
@@ -324,6 +339,104 @@ class ReactionHandler {
             } catch (error) {
                 getLogger().error(`Error deleting message: ${error.message || error}`);
             }
+        }
+    }
+
+    /**
+     * Handle reverse reaction flow (Discord → WhatsApp)
+     * @param {MessageReaction} reaction - The Discord reaction
+     * @param {User} user - The user who reacted
+     * @param {boolean} isRemoval - Whether this is a reaction removal (true) or addition (false)
+     */
+    async handleReverseReaction(reaction, user, isRemoval = false) {
+        try {
+            // Skip if WhatsApp service is not available
+            if (!this.whatsappService) {
+                getLogger().debug('WhatsApp service not available, skipping reverse reaction');
+                return;
+            }
+
+            // Look up WhatsApp message information by Discord message ID
+            const whatsappInfo = await this.postgresService.getWhatsAppMessageByDiscordId(reaction.message.id);
+
+            if (!whatsappInfo) {
+                getLogger().debug(`No WhatsApp message found for Discord message ${reaction.message.id}, skipping reverse reaction`);
+                return;
+            }
+
+            const { chatId, messageKey } = whatsappInfo;
+
+            getLogger().debug(`Received WhatsApp info:`, whatsappInfo);
+            getLogger().debug(`Extracted chatId: ${chatId}, messageKey:`, messageKey);
+
+            if (!chatId || !messageKey) {
+                getLogger().warning('Missing chatId or messageKey for reverse reaction', { chatId, messageKey });
+                return;
+            }
+
+            // For additions, check if user already has a reaction on this WhatsApp message
+            if (!isRemoval) {
+                // Get all reactions from this user on this message
+                const userReactions = reaction.message.reactions.cache.filter(r =>
+                    r.users.cache.has(user.id)
+                );
+
+                if (userReactions.size > 1) {
+                    // User has multiple reactions - WhatsApp only allows one
+                    getLogger().warning(`User ${user.username} has multiple reactions on WhatsApp message, removing new reaction`);
+
+                    // Remove the new reaction
+                    try {
+                        await reaction.users.remove(user.id);
+                        getLogger().debug('Successfully removed duplicate reaction from Discord');
+                    } catch (removeError) {
+                        getLogger().error('Failed to remove duplicate reaction from Discord:', removeError);
+                    }
+
+                    // Send DM to user explaining the limitation
+                    try {
+                        const dmChannel = await user.createDM();
+                        await dmChannel.send(
+                            '⚠️ **WhatsApp Reaction Limitation**\n\n' +
+                            'WhatsApp only allows one reaction per message. You already have a reaction on this message.\n\n' +
+                            'Please remove your existing reaction first, then add the new one.'
+                        );
+                        getLogger().info(`Sent DM to ${user.username} about WhatsApp reaction limitation`);
+                    } catch (dmError) {
+                        getLogger().warning('Failed to send DM about reaction limitation:', dmError);
+                    }
+
+                    return; // Don't send to WhatsApp
+                }
+            }
+
+            // Get emoji text - handle different emoji types
+            let emoji = '';
+            if (!isRemoval) {
+                if (reaction.emoji.name) {
+                    emoji = reaction.emoji.name;
+                    // For custom emojis, we might want to use the name instead of the actual emoji
+                    if (reaction.emoji.id) {
+                        // This is a custom Discord emoji, use name
+                        emoji = `:${reaction.emoji.name}:`;
+                    }
+                }
+            }
+            // For removal, emoji stays empty string
+
+            getLogger().info(`Sending reverse reaction to WhatsApp: ${emoji || '(remove)'} from ${user.username} to chat ${chatId}`);
+
+            // Send reaction to WhatsApp
+            const result = await this.whatsappService.sendReaction(chatId, messageKey, emoji);
+
+            if (result) {
+                getLogger().success(`Reverse reaction sent successfully to WhatsApp`);
+            } else {
+                getLogger().warning('Failed to send reverse reaction to WhatsApp');
+            }
+
+        } catch (error) {
+            getLogger().error('Error handling reverse reaction:', error);
         }
     }
 

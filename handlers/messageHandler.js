@@ -18,7 +18,7 @@ class MessageHandler {
             // Check for WhatsApp forwarding first
             await this.handleWhatsAppForwarding(message);
 
-            // Then handle link tracking
+            // Then handle link tracking (only for monitored channels)
             await this.handleLinkTracking(message);
 
         } catch (error) {
@@ -33,6 +33,12 @@ class MessageHandler {
                 ? await this.postgresService.getFeatureFlagCached('LINK_TRACKER_ENABLED')
                 : true;
             if (!enabled) return;
+
+            // Check if this channel is monitored for link tracking
+            const monitoredChannels = await this.postgresService.getActiveMonitoredChannels(message.guild.id);
+            if (!monitoredChannels.includes(message.channel.id)) {
+                return; // Channel not monitored for link tracking
+            }
 
             // Check if message contains URLs
             const urls = message.content.match(this.urlRegex);
@@ -64,18 +70,26 @@ class MessageHandler {
 
     async handleWhatsAppForwarding(message) {
         try {
+            Logger.info(`🔍 Checking WhatsApp forwarding for Discord message in #${message.channel.name} (${message.channel.id})`);
+
             // Check if WhatsApp service is available and enabled
             const whatsappEnabled = this.postgresService && typeof this.postgresService.getFeatureFlagCached === 'function'
                 ? await this.postgresService.getFeatureFlagCached('WHATSAPP_ENABLED')
                 : false;
 
+            Logger.info(`🔍 WhatsApp enabled: ${whatsappEnabled}, service available: ${!!this.whatsappService}`);
+
             if (!whatsappEnabled || !this.whatsappService) {
+                Logger.info(`🔍 WhatsApp forwarding skipped: enabled=${whatsappEnabled}, service=${!!this.whatsappService}`);
                 return;
             }
 
             // Check if this Discord channel is mapped to a WhatsApp chat
             const whatsappChatId = await this.postgresService.getWhatsAppChatForDiscordChannel(message.channel.id);
+            Logger.info(`🔍 WhatsApp chat mapping for channel ${message.channel.id}: ${whatsappChatId}`);
+
             if (!whatsappChatId) {
+                Logger.info(`🔍 No WhatsApp chat mapping found for Discord channel #${message.channel.name} (${message.channel.id})`);
                 return; // No mapping found
             }
 
@@ -114,11 +128,9 @@ class MessageHandler {
 
     async forwardTextToWhatsApp(message, whatsappChatId) {
         try {
-            const author = message.author.username;
             const content = message.content;
-            const formattedMessage = `**${author}**: ${content}`;
-
-            const result = await this.whatsappService.sendTextMessage(whatsappChatId, formattedMessage);
+            // Send content directly without Discord username prefix
+            const result = await this.whatsappService.sendTextMessage(whatsappChatId, content);
             if (result) {
                 Logger.success(`Text message forwarded to WhatsApp: ${content.substring(0, 50)}...`);
                 return true;
@@ -132,7 +144,6 @@ class MessageHandler {
 
     async forwardMediaToWhatsApp(attachment, message, whatsappChatId) {
         try {
-            const author = message.author.username;
             const fileName = attachment.name;
             const fileSize = attachment.size;
 
@@ -161,10 +172,8 @@ class MessageHandler {
                 mediaType = 'video';
             }
 
-            // Create caption with Discord author info
-            const caption = message.content ?
-                `**${author}**: ${message.content}` :
-                `**${author}** sent ${fileName}`;
+            // Use message content directly as caption, or empty string for files without text
+            const caption = message.content || '';
 
             const result = await this.whatsappService.sendMediaMessage(
                 whatsappChatId,

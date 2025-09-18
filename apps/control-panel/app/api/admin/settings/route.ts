@@ -15,7 +15,6 @@ type Settings = {
   };
   whatsapp?: {
     enabled?: boolean;
-    storeMessages?: boolean;
   };
   timezone?: {
     tz?: string;
@@ -65,7 +64,7 @@ export async function GET() {
       }
       delete (discord as any).token;
     }
-    const whatsapp = (await getSetting('whatsapp')) || { enabled: false, storeMessages: false };
+    const whatsapp = (await getSetting('whatsapp')) || { enabled: false };
     const timezone = (await getSetting('timezone')) || { tz: 'UTC' };
     const caching = (await getSetting('caching')) || { redisUrl: '', enabled: false };
     const rateLimit = (await getSetting('rateLimit')) || {
@@ -178,7 +177,7 @@ export async function PUT(req: Request) {
       } catch {}
     }
     if (body.whatsapp) {
-      const wschema = z.object({ enabled: z.boolean().optional(), storeMessages: z.boolean().optional() }).strict();
+      const wschema = z.object({ enabled: z.boolean().optional() }).strict();
       const wparsed = wschema.safeParse(body.whatsapp);
       if (!wparsed.success) return NextResponse.json({ error: 'invalid_whatsapp_payload' }, { status: 422 });
       const prev = await getSetting('whatsapp');
@@ -189,26 +188,12 @@ export async function PUT(req: Request) {
         if (typeof body.whatsapp.enabled === 'boolean') {
           await pool.query(`INSERT INTO feature_flags(key, value) VALUES ('WHATSAPP_ENABLED', $1) ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value, updated_at = CURRENT_TIMESTAMP`, [!!body.whatsapp.enabled]);
         }
-        if (typeof body.whatsapp.storeMessages === 'boolean') {
-          await pool.query(`INSERT INTO feature_flags(key, value) VALUES ('WHATSAPP_STORE_MESSAGES', $1) ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value, updated_at = CURRENT_TIMESTAMP`, [!!body.whatsapp.storeMessages]);
-        }
       } catch {}
       try {
         // resolve admin channel to target
         const discordCfg = await getSetting('discord');
         const channelId = discordCfg?.adminChannelId || '';
-        // Notify storeMessages change
-        try {
-          const beforeStore = !!(prev && prev.storeMessages);
-          const afterStore = !!body.whatsapp.storeMessages;
-          if (prev && beforeStore !== afterStore) {
-            await fetch(notifyUrl, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', ...(adminToken ? { 'x-admin-token': adminToken } : {}) },
-              body: JSON.stringify({ type: 'feature_toggle', payload: { name: 'WhatsApp Store Messages', enabled: afterStore, channelId } })
-            }).catch(()=>{});
-          }
-        } catch {}
+        // Removed storeMessages notification logic (dead code removed)
         // Notify toggle state
         await fetch(notifyUrl, {
           method: 'POST',
