@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { Switch, Listbox } from '@headlessui/react';
 import { useReactTable, getCoreRowModel, createColumnHelper, flexRender } from '@tanstack/react-table';
 import { useDiscordChannels, useDiscordMonitoredChannels, useAdminSettings } from '../hooks/useApi';
@@ -35,37 +35,83 @@ export default function LinkTrackerPanel() {
     }
   }, [monitoredChannels, monitoredLoading, channels]);
 
+  // Create stable functions to avoid infinite re-renders
+  const addRow = useCallback(() => {
+    setRows(prev => [...prev, { key: '', id: '', name: 'Select a channel', isActive: true }]);
+  }, []);
+
+  const removeRow = useCallback((index: number) => {
+    setRows(prev => prev.filter((_, i) => i !== index));
+  }, []);
+
+  const updateRow = useCallback((index: number, id: string) => {
+    setRows(prev => {
+      // Get current channels to resolve name
+      const currentChannels = channels || [];
+      return prev.map((r, i) => {
+        if (i === index) {
+          // Resolve channel name at the time of update
+          const channelName = currentChannels.find((c: Channel) => c.id === id)?.name || id || 'Select a channel';
+          return { ...r, id, name: channelName };
+        }
+        return r;
+      });
+    });
+  }, []);
+
+  const updateActive = useCallback((index: number, active: boolean) => {
+    setRows(prev => prev.map((r, i) => i === index ? ({ ...r, isActive: active }) : r));
+  }, []);
+
+  // Stable ref to avoid re-renders
+  const rowsRef = useRef(rows);
+  rowsRef.current = rows;
+
+  // Component for channel selection with duplicate prevention
+  function ChannelSelector({ value, onChange, rowIndex }: { value: string; onChange: (id: string) => void; rowIndex: number }) {
+    return (
+      <div className="relative inline-block">
+        <Listbox value={value} onChange={onChange}>
+          <Listbox.Button className="rounded border px-3 py-2 w-64 text-left">
+            {channelsLoading ? 'Loading...' :
+             (value ? (channels.find((c: Channel) => c.id === value)?.name || value) : 'Select a channel')}
+          </Listbox.Button>
+          <Listbox.Options className="absolute z-50 mt-1 max-h-60 w-64 overflow-auto rounded border bg-white shadow">
+            {channelsLoading ? (
+              <div className="px-3 py-2 text-gray-500">Loading channels...</div>
+            ) : channels
+              .sort((a: Channel, b: Channel) => a.name.localeCompare(b.name))
+              .map((c: Channel) => {
+                // Calculate at render time to avoid memoization issues
+                const isAlreadySelected = rowsRef.current.some((r, i) => i !== rowIndex && r.id === c.id);
+                return (
+                  <Listbox.Option
+                    key={c.id}
+                    value={c.id}
+                    disabled={isAlreadySelected}
+                    className={`px-3 py-2 cursor-pointer ${isAlreadySelected ? 'text-gray-400 bg-gray-50 cursor-not-allowed' : 'ui-active:bg-indigo-50'}`}
+                  >
+                    {c.name} {isAlreadySelected ? '(already selected)' : ''}
+                  </Listbox.Option>
+                );
+              })}
+          </Listbox.Options>
+        </Listbox>
+      </div>
+    );
+  }
+
   const columnHelper = createColumnHelper<RowData>();
   const columns = useMemo(() => [
     columnHelper.display({
       id: 'name',
       header: 'Channel',
       cell: ({ row }) => (
-        <div className="relative inline-block">
-          <Listbox value={row.original.id} onChange={(v) => updateRow(row.index, v)}>
-            <Listbox.Button className="rounded border px-3 py-2 w-64 text-left">
-              {channelsLoading ? 'Loading...' : channels.find((c: Channel) => c.id === row.original.id)?.name ?? 'Select a channel'}
-            </Listbox.Button>
-            <Listbox.Options className="absolute z-50 mt-1 max-h-60 w-64 overflow-auto rounded border bg-white shadow">
-              {channelsLoading ? (
-                <div className="px-3 py-2 text-gray-500">Loading channels...</div>
-              ) : channels.map((c: Channel) => {
-                // Check if this channel is already monitored by another row
-                const isAlreadyMonitored = rows.some(r => r.id === c.id && r.id !== row.original.id && r.isActive);
-                return (
-                  <Listbox.Option
-                    key={c.id}
-                    value={c.id}
-                    disabled={isAlreadyMonitored}
-                    className={`px-3 py-2 cursor-pointer ${isAlreadyMonitored ? 'text-gray-400 bg-gray-50 cursor-not-allowed' : 'ui-active:bg-indigo-50'}`}
-                  >
-                    {c.name} {isAlreadyMonitored ? '(already monitored)' : ''}
-                  </Listbox.Option>
-                );
-              })}
-            </Listbox.Options>
-          </Listbox>
-        </div>
+        <ChannelSelector
+          value={row.original.id}
+          onChange={(v) => updateRow(row.index, v)}
+          rowIndex={row.index}
+        />
       )
     }),
     columnHelper.display({
@@ -90,20 +136,11 @@ export default function LinkTrackerPanel() {
     }),
   ], [channels, channelsLoading]);
 
-  const table = useReactTable({ data: rows, columns, getCoreRowModel: getCoreRowModel() });
-
-  function addRow() {
-    setRows(prev => [...prev, { key: '', id: '', name: 'Select a channel', isActive: true }]);
-  }
-  function removeRow(index: number) {
-    setRows(prev => prev.filter((_, i) => i !== index));
-  }
-  function updateRow(index: number, id: string) {
-    setRows(prev => prev.map((r, i) => i === index ? ({ ...r, id, name: channels.find((c: Channel) => c.id === id)?.name ?? id }) : r));
-  }
-  function updateActive(index: number, active: boolean) {
-    setRows(prev => prev.map((r, i) => i === index ? ({ ...r, isActive: active }) : r));
-  }
+  const table = useReactTable({
+    data: rows,
+    columns,
+    getCoreRowModel: getCoreRowModel(),
+  });
 
   const [toasts, setToasts] = useState<Array<{ id: number; kind: 'success' | 'error'; message: string }>>([]);
   function addToast(message: string, kind: 'success' | 'error' = 'success') {

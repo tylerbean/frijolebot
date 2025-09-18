@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Switch, Listbox, Portal } from '@headlessui/react';
+import { Switch, Listbox } from '@headlessui/react';
 import { useReactTable, getCoreRowModel, createColumnHelper, flexRender } from '@tanstack/react-table';
 import { useDiscordChannels, useWhatsAppChats, useWhatsAppAvailableChats } from '../hooks/useApi';
 
@@ -18,6 +18,10 @@ export default function WhatsAppProxyPanel() {
   const { chats: availableChats, isLoading: availableChatsLoading } = useWhatsAppAvailableChats();
 
   const isLoading = channelsLoading || chatsLoading || availableChatsLoading;
+
+  // Stable ref to avoid re-renders
+  const rowsRef = useRef(rows);
+  rowsRef.current = rows;
 
   // Update rows when chats data changes
   useEffect(() => {
@@ -37,7 +41,6 @@ export default function WhatsAppProxyPanel() {
       id: 'chatName',
       header: 'Chat Name',
       cell: ({ row }) => {
-        const btnRef = useRef<HTMLButtonElement | null>(null);
         // If there are no available chats, render a disabled control with guidance
         if (availableChats.length === 0) {
           return (
@@ -50,46 +53,27 @@ export default function WhatsAppProxyPanel() {
         return (
           <div className="relative inline-block">
             <Listbox value={row.original.chatId} onChange={(v) => updateChat(row.index, v)}>
-              {({ open }) => {
-                const rect = btnRef.current?.getBoundingClientRect();
-                let style: any = undefined;
-                if (rect) {
-                  const minWidth = 288;
-                  const width = Math.max(rect.width, minWidth);
-                  let left = rect.left + window.scrollX;
-                  if (left + width > window.innerWidth) left = Math.max(8, window.innerWidth - width - 8);
-                  const maxBelow = window.innerHeight - rect.bottom - 8;
-                  const maxAbove = rect.top - 8;
-                  const desiredMaxH = 240;
-                  let top = rect.bottom + window.scrollY;
-                  let maxHeight = Math.min(desiredMaxH, maxBelow);
-                  if (maxHeight < 120 && maxAbove > maxBelow) {
-                    maxHeight = Math.min(desiredMaxH, maxAbove);
-                    top = rect.top + window.scrollY - maxHeight;
-                  }
-                  style = { position: 'fixed' as const, top, left, width, zIndex: 2147483647, maxHeight };
-                }
-                return (
-                  <>
-                    <Listbox.Button ref={btnRef} className="rounded border px-3 py-2 w-64 text-left">
-                      {row.original.chatName || 'Select a chat'}
-                    </Listbox.Button>
-                    {open && rect && (
-                      <Portal>
-                        <div className="headless-portal" aria-label="dropdown-portal" style={style}>
-                          <Listbox.Options static className="w-full overflow-auto rounded border bg-white shadow" style={{ maxHeight: (style as any)?.maxHeight ?? 240 }}>
-                            {availableChats.map((c: WAChat) => (
-                              <Listbox.Option key={c.chat_id} value={c.chat_id} className="px-3 py-2 ui-active:bg-indigo-50 cursor-pointer">
-                                {c.chat_name}
-                              </Listbox.Option>
-                            ))}
-                          </Listbox.Options>
-                        </div>
-                      </Portal>
-                    )}
-                  </>
-                );
-              }}
+              <Listbox.Button className="rounded border px-3 py-2 w-64 text-left">
+                {row.original.chatName || 'Select a chat'}
+              </Listbox.Button>
+              <Listbox.Options className="absolute z-50 mt-1 max-h-60 w-64 overflow-auto rounded border bg-white shadow">
+                {availableChats
+                  .sort((a: WAChat, b: WAChat) => a.chat_name.localeCompare(b.chat_name))
+                  .map((c: WAChat) => {
+                  // Check if this chat is already selected in any other row using ref
+                  const isAlreadySelected = rowsRef.current.some((r, i) => i !== row.index && r.chatId === c.chat_id);
+                  return (
+                    <Listbox.Option
+                      key={c.chat_id}
+                      value={c.chat_id}
+                      disabled={isAlreadySelected}
+                      className={`px-3 py-2 cursor-pointer ${isAlreadySelected ? 'text-gray-400 bg-gray-50 cursor-not-allowed' : 'ui-active:bg-indigo-50'}`}
+                    >
+                      {c.chat_name} {isAlreadySelected ? '(already selected)' : ''}
+                    </Listbox.Option>
+                  );
+                })}
+              </Listbox.Options>
             </Listbox>
           </div>
         );
@@ -100,7 +84,7 @@ export default function WhatsAppProxyPanel() {
       header: 'Discord Channel',
       cell: ({ row }) => (
         <div className="relative inline-block">
-          <ChannelSelectCell value={row.original.channelId ?? ''} onChange={(v) => updateRow(row.index, v)} />
+          <ChannelSelectCell value={row.original.channelId ?? ''} onChange={(v) => updateRow(row.index, v)} rowIndex={row.index} />
         </div>
       )
     }),
@@ -128,8 +112,7 @@ export default function WhatsAppProxyPanel() {
 
   const table = useReactTable({ data: rows, columns, getCoreRowModel: getCoreRowModel() });
 
-  function ChannelSelectCell(props: { value?: string; onChange: (v: string) => void }) {
-    const btnRef = useRef<HTMLButtonElement | null>(null);
+  function ChannelSelectCell(props: { value?: string; onChange: (v: string) => void; rowIndex: number }) {
     if (channels.length === 0) {
       return (
         <div className="inline-flex flex-col gap-1">
@@ -140,55 +123,27 @@ export default function WhatsAppProxyPanel() {
     }
     return (
       <Listbox value={props.value ?? ''} onChange={props.onChange}>
-        {({ open }) => {
-          const rect = btnRef.current?.getBoundingClientRect();
-          let style: any = undefined;
-          if (rect) {
-            const minWidth = 288;
-            const width = Math.max(rect.width, minWidth);
-            let left = rect.left + window.scrollX;
-            if (left + width > window.innerWidth) left = Math.max(8, window.innerWidth - width - 8);
-            const maxBelow = window.innerHeight - rect.bottom - 8;
-            const maxAbove = rect.top - 8;
-            const desiredMaxH = 240;
-            let top = rect.bottom + window.scrollY;
-            let maxHeight = Math.min(desiredMaxH, maxBelow);
-            if (maxHeight < 120 && maxAbove > maxBelow) {
-              maxHeight = Math.min(desiredMaxH, maxAbove);
-              top = rect.top + window.scrollY - maxHeight;
-            }
-            style = { position: 'fixed' as const, top, left, width, zIndex: 2147483647, maxHeight };
-          }
-          return (
-            <>
-              <Listbox.Button ref={btnRef} className="rounded border px-3 py-2 w-64 text-left">
-                {channels.find((c: Channel) => c.id === (props.value ?? ''))?.name ?? 'Select a channel'}
-              </Listbox.Button>
-              {open && rect && (
-                <Portal>
-                  <div className="headless-portal" aria-label="dropdown-portal" style={style}>
-                    <Listbox.Options static className="w-full overflow-auto rounded border bg-white shadow" style={{ maxHeight: (style as any)?.maxHeight ?? 240 }}>
-                      {channels.map((c: Channel) => {
-                        // Check if this channel is already mapped to another chat
-                        const isAlreadyMapped = rows.some(r => r.channelId === c.id && r.channelId !== props.value && r.isActive);
-                        return (
-                          <Listbox.Option
-                            key={c.id}
-                            value={c.id}
-                            disabled={isAlreadyMapped}
-                            className={`px-3 py-2 cursor-pointer ${isAlreadyMapped ? 'text-gray-400 bg-gray-50 cursor-not-allowed' : 'ui-active:bg-indigo-50'}`}
-                          >
-                            {c.name} {isAlreadyMapped ? '(already mapped)' : ''}
-                          </Listbox.Option>
-                        );
-                      })}
-                    </Listbox.Options>
-                  </div>
-                </Portal>
-              )}
-            </>
-          );
-        }}
+        <Listbox.Button className="rounded border px-3 py-2 w-64 text-left">
+          {channels.find((c: Channel) => c.id === (props.value ?? ''))?.name ?? 'Select a channel'}
+        </Listbox.Button>
+        <Listbox.Options className="absolute z-50 mt-1 max-h-60 w-64 overflow-auto rounded border bg-white shadow">
+          {channels
+            .sort((a: Channel, b: Channel) => a.name.localeCompare(b.name))
+            .map((c: Channel) => {
+            // Check if this channel is already selected in any other row using ref
+            const isAlreadySelected = rowsRef.current.some((r, i) => i !== props.rowIndex && r.channelId === c.id);
+            return (
+              <Listbox.Option
+                key={c.id}
+                value={c.id}
+                disabled={isAlreadySelected}
+                className={`px-3 py-2 cursor-pointer ${isAlreadySelected ? 'text-gray-400 bg-gray-50 cursor-not-allowed' : 'ui-active:bg-indigo-50'}`}
+              >
+                {c.name} {isAlreadySelected ? '(already selected)' : ''}
+              </Listbox.Option>
+            );
+          })}
+        </Listbox.Options>
       </Listbox>
     );
   }
