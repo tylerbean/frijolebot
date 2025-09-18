@@ -211,7 +211,7 @@ export default function AdminPage() {
     }
   }
 
-  const tzList = ['UTC','America/Chicago','America/New_York','Europe/London','Europe/Berlin','Asia/Tokyo'];
+  const tzList = ['UTC','America/Chicago','America/New_York','Europe/London','Europe/Berlin','Asia/Tokyo'].sort();
 
   return (
     <main className="mx-auto max-w-5xl p-6 space-y-6">
@@ -257,7 +257,9 @@ export default function AdminPage() {
                             <Portal>
                               <div style={style}>
                                 <Listbox.Options static className="max-h-60 w-full overflow-auto rounded border bg-white shadow">
-                                  {discordChannels.map(c => (
+                                  {discordChannels
+                                    .sort((a: { id: string; name: string }, b: { id: string; name: string }) => a.name.localeCompare(b.name))
+                                    .map(c => (
                                     <Listbox.Option key={c.id} value={c.id} className="px-3 py-2 ui-active:bg-indigo-50 cursor-pointer">
                                       {c.name}
                                     </Listbox.Option>
