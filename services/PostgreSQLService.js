@@ -780,11 +780,11 @@ class PostgreSQLService {
             Logger.info(`User ${username} is member of ${userGuilds.size} guilds:`, Array.from(userGuilds));
             Logger.info(`User ${username} has access to ${userChannels.size} channels:`, Array.from(userChannels));
             
-            // Filter for unread links from servers/channels they have access to
+            // Filter for unread links from servers/channels they have access to and enrich with guild names
             const unreadLinks = allLinks.filter(link => {
                 const hasGuildAccess = userGuilds.has(link.guild_id);
                 const hasChannelAccess = userChannels.has(link.channel_id);
-                
+
                 Logger.debug(`Link filtering:`, {
                     user: link.user,
                     username: username,
@@ -796,8 +796,15 @@ class PostgreSQLService {
                     channel_id: link.channel_id,
                     passes: hasGuildAccess && hasChannelAccess
                 });
-                
+
                 return hasGuildAccess && hasChannelAccess;
+            }).map(link => {
+                // Enrich with guild name from Discord client
+                const guild = discordClient.guilds.cache.get(link.guild_id);
+                return {
+                    ...link,
+                    guild_name: guild?.name || 'Unknown Server'
+                };
             });
 
             Logger.info(`Filtered to ${unreadLinks.length} unread links for ${username} from accessible guilds`);
