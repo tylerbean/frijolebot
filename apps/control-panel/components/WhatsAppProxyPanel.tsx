@@ -168,11 +168,20 @@ export default function WhatsAppProxyPanel() {
                 <Portal>
                   <div className="headless-portal" aria-label="dropdown-portal" style={style}>
                     <Listbox.Options static className="w-full overflow-auto rounded border bg-white shadow" style={{ maxHeight: (style as any)?.maxHeight ?? 240 }}>
-                      {channels.map((c: Channel) => (
-                        <Listbox.Option key={c.id} value={c.id} className="px-3 py-2 ui-active:bg-indigo-50 cursor-pointer">
-                          {c.name}
-                        </Listbox.Option>
-                      ))}
+                      {channels.map((c: Channel) => {
+                        // Check if this channel is already mapped to another chat
+                        const isAlreadyMapped = rows.some(r => r.channelId === c.id && r.channelId !== props.value && r.isActive);
+                        return (
+                          <Listbox.Option
+                            key={c.id}
+                            value={c.id}
+                            disabled={isAlreadyMapped}
+                            className={`px-3 py-2 cursor-pointer ${isAlreadyMapped ? 'text-gray-400 bg-gray-50 cursor-not-allowed' : 'ui-active:bg-indigo-50'}`}
+                          >
+                            {c.name} {isAlreadyMapped ? '(already mapped)' : ''}
+                          </Listbox.Option>
+                        );
+                      })}
                     </Listbox.Options>
                   </div>
                 </Portal>

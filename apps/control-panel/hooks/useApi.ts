@@ -1,6 +1,18 @@
 import useSWR from 'swr';
 
-const fetcher = (url: string) => fetch(url).then(res => res.json());
+const fetcher = (url: string) => {
+  console.log('Fetching:', url);
+  const start = Date.now();
+  return fetch(url).then(res => {
+    const duration = Date.now() - start;
+    console.log(`Fetch complete for ${url}: ${duration}ms, status: ${res.status}`);
+    return res.json();
+  }).catch(err => {
+    const duration = Date.now() - start;
+    console.error(`Fetch failed for ${url}: ${duration}ms`, err);
+    throw err;
+  });
+};
 
 export function useDiscordChannels() {
   const { data, error, isLoading, mutate } = useSWR('/api/discord/channels', fetcher, {

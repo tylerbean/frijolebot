@@ -9,6 +9,7 @@ async function main() {
   const CacheService = require('./services/CacheService');
   const HealthCheckService = require('./services/HealthCheckService');
   const WhatsAppService = require('./services/WhatsAppService');
+  const SchedulerService = require('./services/SchedulerService');
   const MessageHandler = require('./handlers/messageHandler');
   const ReactionHandler = require('./handlers/reactionHandler');
   const CommandHandler = require('./handlers/commandHandler');
@@ -39,6 +40,7 @@ Logger.startup('Bot starting...');
 
 // Initialize services
 const postgresService = new PostgreSQLService(config.postgres);
+const schedulerService = new SchedulerService(postgresService);
 let cacheService;
 
 // Initialize database schema
@@ -166,16 +168,16 @@ async function executeReadyLogic() {
     Logger.info('Ready event fired!');
     Logger.success(`Bot logged in as ${client.user.tag}`);
 
-    // Determine channels to monitor from DB before posting status
+    // Determine channels to monitor from database
     let channelsToMonitor = [];
     try {
-        const monitored = await postgresService.getActiveMonitoredChannels(settings.discord.guildId);
-        channelsToMonitor = monitored.length > 0 ? monitored : config.discord.channelsToMonitor;
-    } catch (_) {
+        channelsToMonitor = await postgresService.getActiveMonitoredChannels(settings.discord.guildId);
+    } catch (error) {
+        Logger.error('Failed to load monitored channels from database:', error);
         channelsToMonitor = [];
     }
     if (channelsToMonitor.length === 0) {
-        Logger.warning('No monitored channels found (DB/env). LinkTracker will be idle until configured.');
+        Logger.warning('No monitored channels found in database. LinkTracker will be idle until configured via admin panel.');
     }
     // Send admin startup message and channel summary
     try {
@@ -213,6 +215,9 @@ async function executeReadyLogic() {
     // expose WhatsApp service to health for chat listing if available later
     healthCheckService.whatsappService = whatsappService;
     healthCheckService.start();
+
+    // Initialize and start scheduler service for daily tasks
+    await schedulerService.initialize();
     
     // Initialize WhatsApp service if enabled via admin settings
     Logger.info(`WhatsApp enabled: ${settings.whatsapp?.enabled}`);
@@ -234,7 +239,11 @@ async function executeReadyLogic() {
     // Initialize message handler with WhatsApp service (after WhatsApp initialization)
     messageHandler = new MessageHandler(postgresService, whatsappService);
     Logger.info('Message handler initialized with WhatsApp integration');
-    
+
+    // Set WhatsApp service on reaction handler for reverse reaction flow
+    reactionHandler.setWhatsAppService(whatsappService);
+    Logger.info('Reaction handler configured with WhatsApp service for reverse reactions');
+
     // After potential WhatsApp init, attach service for health endpoint
     healthCheckService.whatsappService = whatsappService;
     // Register slash commands
@@ -280,7 +289,7 @@ async function executeReadyLogic() {
       Logger.info('Client is already ready, executing ready logic immediately...');
       await executeReadyLogic();
   } else {
-      // Discord.js v14 uses 'ready'; v15 prefers 'clientReady'. Listen to both, guard double-run.
+      // Discord.js now uses 'clientReady' event
       let ran = false;
       const runOnce = async (label) => {
         if (ran) return;
@@ -288,13 +297,7 @@ async function executeReadyLogic() {
         Logger.info(`${label} event fired!`);
         await executeReadyLogic();
       };
-      client.once('ready', async () => { await runOnce('ready'); });
-      // Some environments emit 'clientReady' (deprecation note). If present, subscribe.
-      if (typeof client.once === 'function') {
-        try {
-          client.once('clientReady', async () => { await runOnce('clientReady'); });
-        } catch (_) {}
-      }
+      client.once('clientReady', async () => { await runOnce('clientReady'); });
   }
 
 // Helper to best-effort send an admin message during shutdown
@@ -364,8 +367,28 @@ client.on('interactionCreate', async interaction => {
         }
     }
     else if (interaction.commandName === 'status') {
+        // Refresh settings to get latest admin channel ID
+        try {
+            const freshSettings = await postgresService.getSettings();
+            if (freshSettings?.discord) {
+                settings.discord = { ...settings.discord, ...freshSettings.discord };
+                if (freshSettings.discord.adminChannelId) {
+                    config.discord.adminChannelId = freshSettings.discord.adminChannelId;
+                }
+            }
+        } catch (e) {
+            Logger.debug('Failed to refresh settings for status command:', e.message);
+        }
+
         // Restrict to admin channel
         const adminChannelId = settings.discord.adminChannelId || config.discord.adminChannelId;
+        Logger.debug(`Status command authorization check:`, {
+            interactionChannelId: interaction.channelId,
+            settingsAdminChannelId: settings.discord.adminChannelId,
+            configAdminChannelId: config.discord.adminChannelId,
+            resolvedAdminChannelId: adminChannelId,
+            authorized: interaction.channelId === adminChannelId
+        });
         if (interaction.channelId !== adminChannelId) {
             await interaction.reply({ content: '❌ This command can only be used in the admin channel.', flags: MessageFlags.Ephemeral });
             return;
@@ -468,15 +491,21 @@ client.on('messageCreate', async (message) => {
         // Only process messages from configured guild
         if (message.guild?.id !== settings.discord.guildId) return;
         
-        // Only process messages from monitored channels (cached)
+        // Check if this channel has any features enabled
         const cacheKey = `monitored:${settings.discord.guildId}`;
         let dbChannels = await cacheService.get(cacheKey);
         if (!Array.isArray(dbChannels)) {
             dbChannels = await postgresService.getActiveMonitoredChannels(settings.discord.guildId);
             await cacheService.set(cacheKey, dbChannels, 60);
         }
-        if (!dbChannels.includes(message.channel.id)) return;
-        
+
+        // Check if channel has WhatsApp mapping
+        const hasWhatsAppMapping = await postgresService.getWhatsAppChatForDiscordChannel(message.channel.id);
+        const isMonitoredChannel = dbChannels.includes(message.channel.id);
+
+        // Skip if channel has no features enabled
+        if (!isMonitoredChannel && !hasWhatsAppMapping) return;
+
         await messageHandler.handleMessage(message);
         
     } catch (error) {
@@ -509,6 +538,9 @@ process.on('SIGINT', async () => {
     if (healthCheckService) {
         healthCheckService.stop();
     }
+    if (schedulerService) {
+        schedulerService.cleanup();
+    }
     if (commandHandler) {
         commandHandler.destroy();
     }
@@ -525,6 +557,9 @@ process.on('SIGTERM', async () => {
     await sendShutdownNotice('🛑 **FrijoleBot shutting down** (SIGTERM)');
     if (healthCheckService) {
         healthCheckService.stop();
+    }
+    if (schedulerService) {
+        schedulerService.cleanup();
     }
     if (commandHandler) {
         commandHandler.destroy();

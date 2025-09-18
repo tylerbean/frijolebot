@@ -109,8 +109,12 @@ export async function PUT(request: Request) {
         if (c) await c.del('whatsapp:chats');
       } catch (_) {}
 
-    } catch (err) {
+    } catch (err: any) {
       await client.query('ROLLBACK');
+      // Check if this is a unique constraint violation on discord_channel_id
+      if (err.code === '23505' && err.constraint === 'whatsapp_chats_discord_channel_unique') {
+        throw new Error('Discord channel is already mapped to another WhatsApp chat. Each Discord channel can only be mapped to one WhatsApp chat.');
+      }
       throw err;
     } finally {
       client.release();

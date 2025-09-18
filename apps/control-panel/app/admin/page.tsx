@@ -1,10 +1,11 @@
 'use client';
 import { useEffect, useState, useRef } from 'react';
 import { Switch, Listbox, Portal } from '@headlessui/react';
+import Link from 'next/link';
 
 type Settings = {
   discord: { enabled: boolean; token?: string; tokenPreview?: string; tokenDecryptError?: boolean; guildId?: string; adminChannelId?: string; linkTrackerEnabled?: boolean };
-  whatsapp: { enabled: boolean; storeMessages: boolean };
+  whatsapp: { enabled: boolean };
   timezone: { tz: string };
   caching: { redisUrl?: string; enabled?: boolean };
   rateLimit: { enabled: boolean; windowSec: number; maxRequests: number; cleanupIntervalSec: number };
@@ -12,11 +13,14 @@ type Settings = {
 
 export default function AdminPage() {
   const [s, setS] = useState<Settings | null>(null);
+  const [originalGuildId, setOriginalGuildId] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [discordTest, setDiscordTest] = useState<string>('');
   const [redisTest, setRedisTest] = useState<string>('');
   const [discordChannels, setDiscordChannels] = useState<Array<{ id: string; name: string }>>([]);
   const [toasts, setToasts] = useState<Array<{ id: number; kind: 'success' | 'error'; message: string }>>([]);
+  const [showGuildWarning, setShowGuildWarning] = useState(false);
+  const [pendingGuildChange, setPendingGuildChange] = useState<{ oldGuildId: string; newGuildId: string } | null>(null);
 
   function addToast(message: string, kind: 'success' | 'error' = 'success') {
     const id = Date.now() + Math.floor(Math.random() * 1000);
@@ -27,13 +31,15 @@ export default function AdminPage() {
   useEffect(() => {
     (async () => {
       const data = await fetch('/api/admin/settings', { cache: 'no-store' }).then(r => r.json());
-      setS({
+      const settings = {
         discord: { enabled: false, ...data.discord },
-        whatsapp: { enabled: false, storeMessages: false, ...data.whatsapp },
+        whatsapp: { enabled: false, ...data.whatsapp },
         timezone: { tz: 'UTC', ...data.timezone },
         caching: { ...data.caching },
         rateLimit: { enabled: true, windowSec: 60, maxRequests: 5, cleanupIntervalSec: 300, ...data.rateLimit }
-      });
+      };
+      setS(settings);
+      setOriginalGuildId(settings.discord.guildId || '');
       setLoading(false);
     })();
   }, []);
@@ -52,22 +58,81 @@ export default function AdminPage() {
 
   if (loading || !s) return <main className="mx-auto max-w-5xl p-6">Loading...</main>;
 
+  async function handleGuildMigration(oldGuildId: string, newGuildId: string) {
+    try {
+      const res = await fetch('/api/admin/guild-migration', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ oldGuildId, newGuildId })
+      });
+      if (!res.ok) throw new Error((await res.json()).error || 'Guild migration failed');
+      const result = await res.json();
+      addToast(`Guild migration completed. Wiped ${result.wiped.discordLinks} Discord links, ${result.wiped.discordChannels} Discord channels, ${result.wiped.whatsappChats} WhatsApp chats`, 'success');
+      return true;
+    } catch (e: any) {
+      addToast(`Guild migration failed: ${e.message || e}`, 'error');
+      return false;
+    }
+  }
+
   async function saveDiscord() {
     try {
       if (!s) return;
-      const payload: any = {
-        enabled: !!s.discord.enabled,
-        linkTrackerEnabled: s.discord.linkTrackerEnabled === undefined ? undefined : !!s.discord.linkTrackerEnabled,
-      };
-      if (s.discord.token && s.discord.token.trim().length >= 10) payload.token = s.discord.token.trim();
-      if (s.discord.guildId && s.discord.guildId.trim().length > 0) payload.guildId = s.discord.guildId.trim();
-      if (s.discord.adminChannelId && s.discord.adminChannelId.trim().length > 0) payload.adminChannelId = s.discord.adminChannelId.trim();
-      const r = await fetch('/api/admin/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ discord: payload }) });
-      if (!r.ok) throw new Error((await r.json()).error || 'Save failed');
-      addToast('Discord settings saved', 'success');
+
+      const newGuildId = s.discord.guildId?.trim() || '';
+
+      // Check if guild ID is changing
+      if (originalGuildId && newGuildId && originalGuildId !== newGuildId) {
+        setPendingGuildChange({ oldGuildId: originalGuildId, newGuildId });
+        setShowGuildWarning(true);
+        return;
+      }
+
+      await performDiscordSave();
     } catch (e: any) {
       addToast(`Discord save failed: ${e.message || e}`, 'error');
     }
+  }
+
+  async function performDiscordSave() {
+    if (!s) return;
+    const payload: any = {
+      enabled: !!s.discord.enabled,
+      linkTrackerEnabled: s.discord.linkTrackerEnabled === undefined ? undefined : !!s.discord.linkTrackerEnabled,
+    };
+    if (s.discord.token && s.discord.token.trim().length >= 10) payload.token = s.discord.token.trim();
+    if (s.discord.guildId && s.discord.guildId.trim().length > 0) payload.guildId = s.discord.guildId.trim();
+    if (s.discord.adminChannelId && s.discord.adminChannelId.trim().length > 0) payload.adminChannelId = s.discord.adminChannelId.trim();
+    const r = await fetch('/api/admin/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ discord: payload }) });
+    if (!r.ok) throw new Error((await r.json()).error || 'Save failed');
+    setOriginalGuildId(s.discord.guildId || '');
+    addToast('Discord settings saved', 'success');
+  }
+
+  async function confirmGuildChange() {
+    if (!pendingGuildChange) return;
+
+    try {
+      // First wipe the old mappings
+      const migrationSuccess = await handleGuildMigration(pendingGuildChange.oldGuildId, pendingGuildChange.newGuildId);
+      if (!migrationSuccess) return;
+
+      // Then save the new settings
+      await performDiscordSave();
+
+      setShowGuildWarning(false);
+      setPendingGuildChange(null);
+    } catch (e: any) {
+      addToast(`Guild change failed: ${e.message || e}`, 'error');
+    }
+  }
+
+  function cancelGuildChange() {
+    if (!s || !pendingGuildChange) return;
+    // Revert the guild ID back to original
+    setS({ ...s, discord: { ...s.discord, guildId: originalGuildId } });
+    setShowGuildWarning(false);
+    setPendingGuildChange(null);
   }
   async function saveWhatsApp() {
     try {
@@ -157,7 +222,7 @@ export default function AdminPage() {
       )}
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Admin</h1>
-        <a href="/" className="rounded border px-3 py-2 hover:bg-gray-50">Back</a>
+        <Link href="/" className="rounded border px-3 py-2 hover:bg-gray-50">← Back</Link>
       </div>
 
       <section className="rounded border bg-white p-4 shadow-sm space-y-3">
@@ -258,12 +323,6 @@ export default function AdminPage() {
             <span className={`${s.whatsapp.enabled ? 'translate-x-6' : 'translate-x-1'} inline-block h-4 w-4 transform rounded-full bg-white transition`} />
           </Switch>
         </div>
-        <div className="flex items-center justify-between">
-          <div><p className="text-sm text-gray-600">Store Messages</p></div>
-          <Switch disabled={!s.whatsapp.enabled} checked={!!s.whatsapp.storeMessages} onChange={(v)=>setS({ ...s, whatsapp: { ...s.whatsapp, storeMessages: v }})} className={`${s.whatsapp.enabled ? (s.whatsapp.storeMessages ? 'bg-indigo-600' : 'bg-gray-300') : 'bg-gray-200'} relative inline-flex h-6 w-11 items-center rounded-full ${!s.whatsapp.enabled ? 'opacity-50 cursor-not-allowed' : ''}`}>
-            <span className={`${s.whatsapp.storeMessages ? 'translate-x-6' : 'translate-x-1'} inline-block h-4 w-4 transform rounded-full bg-white transition`} />
-          </Switch>
-        </div>
         <div>
           <button onClick={saveWhatsApp} className="rounded bg-green-600 px-3 py-2 text-white">Save</button>
         </div>
@@ -329,6 +388,53 @@ export default function AdminPage() {
           <button onClick={saveRateLimit} className="rounded bg-green-600 px-3 py-2 text-white">Save</button>
         </div>
       </section>
+
+      {/* Guild Change Warning Dialog */}
+      {showGuildWarning && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+          <div className="max-w-md w-full mx-4 bg-white rounded-lg shadow-xl p-6">
+            <div className="flex items-center mb-4">
+              <div className="flex-shrink-0 w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
+                <svg className="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                </svg>
+              </div>
+              <h3 className="ml-3 text-lg font-semibold text-gray-900">⚠️ CRITICAL WARNING ⚠️</h3>
+            </div>
+            <div className="mb-6">
+              <p className="text-gray-700 mb-4">
+                <strong>DANGER:</strong> You are about to change the Discord Guild ID from <code className="bg-gray-100 px-1 rounded">{pendingGuildChange?.oldGuildId}</code> to <code className="bg-gray-100 px-1 rounded">{pendingGuildChange?.newGuildId}</code>.
+              </p>
+              <p className="text-red-600 font-semibold mb-2">
+                This action will PERMANENTLY DELETE ALL:
+              </p>
+              <ul className="list-disc list-inside text-red-600 space-y-1 ml-4">
+                <li>Discord link tracker data and channel configurations</li>
+                <li>WhatsApp proxy channel mappings</li>
+                <li>Discord DM reaction mappings</li>
+                <li>All associated message history</li>
+              </ul>
+              <p className="text-gray-700 mt-4">
+                <strong>This cannot be undone.</strong> Make sure you have backed up any important data before proceeding.
+              </p>
+            </div>
+            <div className="flex space-x-3">
+              <button
+                onClick={cancelGuildChange}
+                className="flex-1 px-4 py-2 bg-gray-300 text-gray-700 rounded hover:bg-gray-400 transition-colors"
+              >
+                Cancel - Keep Current Guild
+              </button>
+              <button
+                onClick={confirmGuildChange}
+                className="flex-1 px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition-colors font-semibold"
+              >
+                ⚠️ CONFIRM - WIPE ALL DATA
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Toasts */}
       <div className="fixed bottom-4 right-4 z-50 space-y-2">
