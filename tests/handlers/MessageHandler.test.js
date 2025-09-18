@@ -14,7 +14,8 @@ describe('MessageHandler', () => {
   beforeEach(() => {
     mockPostgresService = {
       storeLink: jest.fn(),
-      getFeatureFlagCached: jest.fn().mockResolvedValue(true)
+      getFeatureFlagCached: jest.fn().mockResolvedValue(true),
+      getActiveMonitoredChannels: jest.fn().mockResolvedValue(['111111111']) // Return the test channel ID
     };
 
     messageHandler = new MessageHandler(mockPostgresService);
@@ -105,7 +106,7 @@ describe('MessageHandler', () => {
       // so storeLink should not be called
       expect(mockPostgresService.storeLink).not.toHaveBeenCalled();
       expect(Logger.error).toHaveBeenCalledWith(
-        'Error processing message:',
+        'Error in link tracking:',
         expect.any(Error)
       );
     });
