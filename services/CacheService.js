@@ -15,19 +15,67 @@ class CacheService {
         Logger.info('CacheService: REDIS_URL not set, using in-memory cache');
         return;
       }
+      Logger.info(`CacheService: Attempting to connect to Redis at ${this.redisUrl}`);
       const { createClient } = require('redis');
       this.redis = createClient({ url: this.redisUrl });
       this.subscriber = createClient({ url: this.redisUrl });
-      this.redis.on('error', (e) => Logger.warning(`Redis error: ${e.message}`));
-      this.subscriber.on('error', (e) => Logger.warning(`Redis sub error: ${e.message}`));
+      this.redis.on('error', (e) => {
+        const msg = e.message || e.toString() || 'Unknown error';
+        Logger.error(`Redis client error (URL: ${this.redisUrl}): ${msg}`);
+        if (e.code) Logger.error(`Redis error code: ${e.code}`);
+      });
+      this.subscriber.on('error', (e) => {
+        const msg = e.message || e.toString() || 'Unknown error';
+        Logger.error(`Redis subscriber error (URL: ${this.redisUrl}): ${msg}`);
+        if (e.code) Logger.error(`Redis error code: ${e.code}`);
+      });
       await this.redis.connect();
       await this.subscriber.connect();
       this.enabled = true;
-      Logger.success('CacheService: Connected to Redis');
+      Logger.success(`CacheService: Connected to Redis at ${this.redisUrl}`);
     } catch (e) {
-      Logger.warning(`CacheService: Failed to connect to Redis, falling back to memory: ${e.message}`);
+      const msg = e.message || e.toString() || 'Unknown error';
+      Logger.error(`CacheService: Failed to connect to Redis at ${this.redisUrl}`);
+      Logger.error(`CacheService: Error: ${msg}`);
+      if (e.code) Logger.error(`CacheService: Error code: ${e.code}`);
+      Logger.warning('CacheService: Falling back to in-memory cache');
       this.enabled = false;
     }
+  }
+
+  /**
+   * Reinitialize cache with new Redis URL (hot reload)
+   */
+  async reinitialize(newRedisUrl) {
+    Logger.info(`CacheService: Reinitializing with URL: ${newRedisUrl || 'none (in-memory)'}`);
+
+    // Disconnect existing connections
+    try {
+      if (this.redis && this.redis.isOpen) {
+        await this.redis.quit();
+        Logger.info('CacheService: Disconnected existing Redis client');
+      }
+    } catch (e) {
+      Logger.warning(`CacheService: Error disconnecting Redis client: ${e.message}`);
+    }
+
+    try {
+      if (this.subscriber && this.subscriber.isOpen) {
+        await this.subscriber.quit();
+        Logger.info('CacheService: Disconnected existing Redis subscriber');
+      }
+    } catch (e) {
+      Logger.warning(`CacheService: Error disconnecting Redis subscriber: ${e.message}`);
+    }
+
+    // Reset state
+    this.redis = null;
+    this.subscriber = null;
+    this.enabled = false;
+    this.redisUrl = newRedisUrl;
+
+    // Reinitialize
+    await this.initialize();
   }
 
   async get(key) {

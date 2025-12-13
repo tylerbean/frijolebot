@@ -10,9 +10,11 @@ async function main() {
   const HealthCheckService = require('./services/HealthCheckService');
   const WhatsAppService = require('./services/WhatsAppService');
   const SchedulerService = require('./services/SchedulerService');
+  const ModuleService = require('./services/ModuleService');
   const MessageHandler = require('./handlers/messageHandler');
   const ReactionHandler = require('./handlers/reactionHandler');
   const CommandHandler = require('./handlers/commandHandler');
+  const ModuleHandler = require('./handlers/moduleHandler');
   const Logger = require('./utils/logger');
 
 Logger.startup('Bot starting...');
@@ -110,6 +112,8 @@ let messageHandler; // Will be initialized after WhatsApp service is ready
 let commandHandler; // Will be initialized after client is ready
 let healthCheckService; // Will be initialized after client is ready
 let whatsappService; // Will be initialized after client is ready
+let moduleService; // Module system service
+let moduleHandler; // Module command handler
 
 
 
@@ -242,9 +246,30 @@ async function executeReadyLogic() {
 
     // Initialize CommandHandler with Discord client
     commandHandler = new CommandHandler(postgresService, reactionHandler, config, client);
-    
+
+    // Initialize ModuleService and load all modules
+    Logger.info('Initializing module system...');
+    moduleService = new ModuleService({
+      postgres: postgresService,
+      cache: cacheService,
+      discord: client,
+      logger: Logger,
+      scheduler: schedulerService
+    });
+    await moduleService.loadModules();
+    Logger.success('Module system initialized');
+
+    // Initialize ModuleHandler for command routing
+    moduleHandler = new ModuleHandler({
+      moduleService: moduleService,
+      discord: client,
+      logger: Logger
+    });
+    await moduleHandler.initialize(settings.discord.token, client.user.id);
+    Logger.success('Module handler initialized');
+
     // Initialize and start health check service
-    healthCheckService = new HealthCheckService(client, postgresService, config);
+    healthCheckService = new HealthCheckService(client, postgresService, config, cacheService);
     // expose WhatsApp service to health for chat listing if available later
     healthCheckService.whatsappService = whatsappService;
     healthCheckService.start();
@@ -349,6 +374,13 @@ async function sendShutdownNotice(message) {
 client.on('interactionCreate', async interaction => {
     if (!interaction.isChatInputCommand()) return;
 
+    // Try to route through module handler first
+    if (moduleHandler) {
+        const routed = await moduleHandler.routeCommand(interaction);
+        if (routed) return; // Command was handled by a module
+    }
+
+    // Fall back to legacy command handlers
     if (interaction.commandName === 'unread') {
         if (!commandHandler) {
             Logger.error('CommandHandler not initialized yet');
@@ -561,6 +593,86 @@ client.on('error', (error) => {
     Logger.error('Discord client error:', error);
 });
 
+// Helper function to clean up WhatsApp mapping when bot loses access to a channel
+async function cleanupWhatsAppMapping(channelId, reason) {
+    try {
+        // Check if this channel has a WhatsApp mapping
+        const query = 'SELECT chat_id, chat_name FROM whatsapp_chats WHERE discord_channel_id = $1';
+        const result = await postgresService.pool.query(query, [channelId]);
+
+        if (result.rows.length === 0) {
+            Logger.debug(`No WhatsApp mapping found for channel ${channelId}`);
+            return;
+        }
+
+        const mapping = result.rows[0];
+        const chatName = mapping.chat_name || mapping.chat_id;
+
+        // Remove the mapping
+        const deleteQuery = 'DELETE FROM whatsapp_chats WHERE discord_channel_id = $1';
+        await postgresService.pool.query(deleteQuery, [channelId]);
+
+        Logger.warning(`Removed WhatsApp mapping for channel ${channelId}: ${chatName} (${reason})`);
+
+        // Send admin notification
+        try {
+            const adminChannelId = settings.discord?.adminChannelId || config.discord?.adminChannelId;
+            if (adminChannelId) {
+                const adminChannel = await resolveChannelById(adminChannelId);
+                if (adminChannel) {
+                    await adminChannel.send(
+                        `⚠️ **WhatsApp Mapping Removed**\n\n` +
+                        `**Reason:** ${reason}\n` +
+                        `**WhatsApp Chat:** ${chatName}\n` +
+                        `**Discord Channel:** <#${channelId}> (${channelId})\n\n` +
+                        `The mapping has been automatically removed from the database.`
+                    );
+                }
+            }
+        } catch (notifyError) {
+            Logger.error('Failed to send admin notification about removed mapping:', notifyError);
+        }
+    } catch (error) {
+        Logger.error(`Failed to clean up WhatsApp mapping for channel ${channelId}:`, error);
+    }
+}
+
+// Listen for channel deletions
+client.on('channelDelete', async (channel) => {
+    try {
+        // Only care about text channels
+        if (channel.type !== 0) return;
+
+        Logger.info(`Channel deleted: #${channel.name} (${channel.id})`);
+        await cleanupWhatsAppMapping(channel.id, `Channel #${channel.name} was deleted`);
+    } catch (error) {
+        Logger.error('Error handling channelDelete event:', error);
+    }
+});
+
+// Listen for channel permission updates
+client.on('channelUpdate', async (oldChannel, newChannel) => {
+    try {
+        // Only care about text channels
+        if (newChannel.type !== 0) return;
+
+        // Check if bot can still send messages in this channel
+        const botMember = await newChannel.guild.members.fetchMe();
+        const permissions = newChannel.permissionsFor(botMember);
+
+        const canView = permissions.has('ViewChannel');
+        const canSend = permissions.has('SendMessages');
+
+        // If bot lost access, clean up the mapping
+        if (!canView || !canSend) {
+            Logger.warning(`Bot lost access to channel #${newChannel.name} (${newChannel.id})`);
+            await cleanupWhatsAppMapping(newChannel.id, `Bot removed or permissions changed in #${newChannel.name}`);
+        }
+    } catch (error) {
+        Logger.error('Error handling channelUpdate event:', error);
+    }
+});
+
 process.on('unhandledRejection', (error) => {
     Logger.error('Unhandled promise rejection:', error);
 });
@@ -573,6 +685,9 @@ process.on('SIGINT', async () => {
     }
     if (schedulerService) {
         schedulerService.cleanup();
+    }
+    if (moduleService) {
+        await moduleService.cleanup();
     }
     if (commandHandler) {
         commandHandler.destroy();
@@ -593,6 +708,9 @@ process.on('SIGTERM', async () => {
     }
     if (schedulerService) {
         schedulerService.cleanup();
+    }
+    if (moduleService) {
+        await moduleService.cleanup();
     }
     if (commandHandler) {
         commandHandler.destroy();
@@ -623,7 +741,7 @@ setInterval(async () => {
   if (!settings.discord.token || !settings.discord.guildId) {
     Logger.info('Discord not configured; UI-only mode.');
     // Start health check server only for UI
-    healthCheckService = new HealthCheckService(null, postgresService, config);
+    healthCheckService = new HealthCheckService(null, postgresService, config, cacheService);
     // Patch config with admin rateLimit for HealthCheckService consumers
     if (settings.rateLimit) {
       config.rateLimit = {
@@ -690,7 +808,7 @@ setInterval(async () => {
       // In test mode, start health check service even if Discord fails
       if (config.app.nodeEnv === 'test') {
           Logger.startup('Test mode: Starting health check service despite Discord auth failure');
-          healthCheckService = new HealthCheckService(null, postgresService, config);
+          healthCheckService = new HealthCheckService(null, postgresService, config, cacheService);
           healthCheckService.start();
           
           // Keep the process alive for health checks

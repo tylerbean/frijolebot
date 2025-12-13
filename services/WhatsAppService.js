@@ -56,43 +56,53 @@ class WhatsAppService {
   async initialize() {
     try {
       Logger.info('Initializing WhatsApp service...');
-      
+
       // Load Baileys library first
       await this.loadBaileys();
-      
+
       // PostgreSQL service is already set in constructor
 
       // Initialize session manager (local-only; no DB session storage)
       this.sessionManager = new WhatsAppSessionManager(undefined, this.discordClient, this.config, this);
-      
+
       // Initialize message handler
       this.messageHandler = new WhatsAppMessageHandler(this.postgresService, this.discordClient, this.config, this);
-      
-      // Initialize WhatsApp client
-      await this.initializeClient();
-      
-      // Check if we need to notify about missing session
-      await this.checkAndNotifySessionStatus();
 
-      // Fallback: if not connected within 20s of init, ping admin once
-      if (this.startupConnectivityTimer) {
-        clearTimeout(this.startupConnectivityTimer);
+      // LAZY INITIALIZATION: Only connect to WhatsApp if we have a valid session
+      // If no session exists, wait for /whatsapp_auth command
+      const hasLocalSession = await this.sessionManager.hasLocalSession();
+
+      if (hasLocalSession) {
+        Logger.info('Found existing WhatsApp session - attempting to restore connection');
+        await this.initializeClient();
+
+        // Set up a timer to check if connection succeeded
+        if (this.startupConnectivityTimer) {
+          clearTimeout(this.startupConnectivityTimer);
+        }
+        this.startupConnectivityTimer = setTimeout(async () => {
+          try {
+            if (!this.isConnected) {
+              // Session exists but connection failed - send ONE notification
+              await this.sendThrottledNotification(
+                'Session restoration failed. Use `/whatsapp_auth` command to generate a QR code for authentication.',
+                'warning'
+              );
+            }
+          } catch (_) {}
+        }, 20000); // Wait 20s for connection to establish
+      } else {
+        Logger.info('No existing WhatsApp session found - waiting for /whatsapp_auth command');
+        // Send ONE notification on startup that we're not connected
+        await this.sendThrottledNotification(
+          'WhatsApp not authenticated. Use `/whatsapp_auth` command to generate a QR code for authentication.',
+          'warning'
+        );
       }
-      this.startupConnectivityTimer = setTimeout(async () => {
-        try {
-          if (!this.isConnected && Date.now() > this.qrSuppressAlertsUntil) {
-            await this.sendAdminNotification(
-              'Not connected after startup. If this persists, use `/whatsapp_auth` to re-link the device.',
-              'warning'
-            );
-            this.setupHourlyReminder();
-          }
-        } catch (_) {}
-      }, 20000);
-      
+
       this.isInitialized = true;
       Logger.success('WhatsApp service initialized successfully');
-      
+
     } catch (error) {
       Logger.error('Failed to initialize WhatsApp service:', error);
       throw error;
@@ -1167,6 +1177,34 @@ class WhatsAppService {
   /**
    * Check session status and notify admin if authentication is needed
    */
+  /**
+   * Send a notification with hourly throttling
+   * Only sends once per hour to prevent spam
+   */
+  async sendThrottledNotification(message, type = 'warning') {
+    try {
+      const now = Date.now();
+      const hourInMs = 3600000; // 1 hour
+
+      // Check if we should send this notification
+      const shouldSend = !this.sessionManager.lastNotificationSent ||
+                        (now - this.sessionManager.lastNotificationSent) >= hourInMs;
+
+      if (shouldSend) {
+        await this.sendAdminNotification(message, type);
+        this.sessionManager.lastNotificationSent = now;
+
+        // Set up hourly reminder if not already set up
+        this.setupHourlyReminder();
+      } else {
+        const nextNotification = Math.ceil((hourInMs - (now - this.sessionManager.lastNotificationSent)) / 60000);
+        Logger.info(`Notification throttled. Next notification in ~${nextNotification} minutes.`);
+      }
+    } catch (error) {
+      Logger.error('Failed to send throttled notification:', error);
+    }
+  }
+
   async checkAndNotifySessionStatus() {
     try {
       if (this.isConnected) {
@@ -1178,7 +1216,7 @@ class WhatsAppService {
           );
           this.startupNotificationSent = true;
         }
-        
+
         // Clear hourly reminder since we're connected
         if (this.hourlyReminderInterval) {
           clearInterval(this.hourlyReminderInterval);
@@ -1187,19 +1225,8 @@ class WhatsAppService {
         return;
       }
 
-      // If not connected and no local session, notify admin once
-      const hasLocal = await this.sessionManager.hasLocalSession();
-      if (!hasLocal && !this.startupNotificationSent) {
-        // No valid session found - notify admin (only once on startup)
-        await this.sendAdminNotification(
-          'Not authenticated. Use `/whatsapp_auth` command to generate a QR code for authentication.',
-          'warning'
-        );
-        this.startupNotificationSent = true;
-        
-        // Set up hourly reminder if still not connected
-        this.setupHourlyReminder();
-      }
+      // This method is now deprecated - notification logic moved to initialize()
+      Logger.debug('checkAndNotifySessionStatus called but notification logic is now in initialize()');
     } catch (error) {
       Logger.error('Error checking session status:', error);
       if (!this.startupNotificationSent) {
@@ -1228,6 +1255,8 @@ class WhatsAppService {
           'Still not authenticated. Use `/whatsapp_auth` command to generate a QR code.',
           'warning'
         );
+        // Update timestamp to keep throttling in sync
+        this.sessionManager.lastNotificationSent = Date.now();
       } else {
         // Connected, clear the reminder
         clearInterval(this.hourlyReminderInterval);
@@ -1502,6 +1531,8 @@ class WhatsAppSessionManager {
     this.qrCodeSent = false;
     this.currentQRCode = null; // Store QR code for on-demand sending
     this.qrRequestedOnDemand = false; // Track if QR was requested via /whatsapp_auth command
+    this.lastNotificationSent = null; // Track last notification time to prevent spam
+    this.notificationInterval = 3600000; // 1 hour in milliseconds
   }
 
   // No DB-backed session lookup; rely solely on local Baileys auth files
@@ -1554,21 +1585,16 @@ class WhatsAppSessionManager {
       // If we have an existing session, wait a bit to see if it restores successfully
       if (this.hasExistingSession && !this.qrCodeSent) {
         Logger.info('QR code generated but waiting to see if existing session restores...');
-        
-        // Set a timeout to notify admin if session doesn't restore within 10 seconds
+
+        // Set a timeout to check session restoration status
         this.sessionRestoreTimeout = setTimeout(async () => {
           if (!this.qrCodeSent) {
-            Logger.warning('Session restoration timeout - notifying admin to use /whatsapp_auth command');
-            // Send notification instead of QR code
-            if (this.discordClient && this.config.discord.adminChannelId) {
-              await this.whatsappService.sendAdminNotification(
-                'Session restoration failed. Use `/whatsapp_auth` command to generate a QR code for authentication.',
-                'warning'
-              );
-            }
+            Logger.info('Session restoration timeout reached - notification will be handled by main service');
+            // Notification is now handled centrally in the initialize() method
+            // No need to send duplicate notifications here
           }
         }, 10000); // 10 second timeout
-        
+
         return;
       }
       
@@ -1593,7 +1619,7 @@ class WhatsAppSessionManager {
       Logger.info('Admin channel ID available:', !!this.config.discord.adminChannelId);
       
       if (this.discordClient && this.config.discord.adminChannelId) {
-        const adminChannel = await this.resolveAdminChannel(this.config.discord.adminChannelId);
+        const adminChannel = await this.whatsappService.resolveAdminChannel(this.config.discord.adminChannelId);
         if (adminChannel) {
           // Check if the QR code is already base64 image data
         if (qr.startsWith('data:image/') || qr.startsWith('iVBORw0KGgo')) {
@@ -1820,7 +1846,7 @@ class WhatsAppSessionManager {
         if (key && typeof this.canSendAdminAlert === 'function' && !this.canSendAdminAlert(key)) {
           return;
         }
-        const adminChannel = await this.resolveAdminChannel(this.config.discord.adminChannelId);
+        const adminChannel = await this.whatsappService.resolveAdminChannel(this.config.discord.adminChannelId);
         if (adminChannel) {
           await adminChannel.send({
             content: `${title}\n\n${message}`
@@ -2011,19 +2037,28 @@ class WhatsAppMessageHandler {
       });
       
       // Get the Discord channel for this WhatsApp chat
+      Logger.debug(`[processMessage] Looking up Discord channel for WhatsApp chat: ${chatId}`);
       const discordChannelId = await this.postgresService.getDiscordChannelForChat(chatId);
-      
+      Logger.debug(`[processMessage] Got Discord channel ID from DB: ${discordChannelId}`);
+
       if (!discordChannelId) {
         Logger.warning(`No Discord channel configured for WhatsApp chat: ${chatId}`);
         return;
       }
-      
+
       // Get the Discord channel
+      Logger.debug(`[processMessage] Attempting to get Discord channel from cache: ${discordChannelId}`);
+      Logger.debug(`[processMessage] Discord client available: ${!!this.discordClient}`);
+      Logger.debug(`[processMessage] Discord client channels cache size: ${this.discordClient?.channels?.cache?.size || 0}`);
+
       const discordChannel = this.discordClient.channels.cache.get(discordChannelId);
       if (!discordChannel) {
-        Logger.error(`Discord channel not found: ${discordChannelId}`);
+        Logger.error(`Discord channel not found in cache: ${discordChannelId}`);
+        Logger.error(`Available channels: ${Array.from(this.discordClient?.channels?.cache?.keys() || []).join(', ')}`);
         return;
       }
+
+      Logger.info(`[processMessage] Successfully got Discord channel: #${discordChannel.name} (${discordChannelId})`);
       
       // Format the message for Discord
       const isFromMe = message.key.fromMe || false;
@@ -2181,9 +2216,48 @@ class WhatsAppMessageHandler {
             }
           }
 
-          const sentMessage = await discordChannel.send(messageOptions);
-          
-          Logger.success(`Media message sent to Discord: ${sentMessage.id}`);
+          Logger.info(`[processMessage] Sending media message to Discord channel #${discordChannel.name}`);
+          Logger.debug(`[processMessage] Message options:`, messageOptions);
+
+          let sentMessage;
+          try {
+            sentMessage = await discordChannel.send(messageOptions);
+            Logger.success(`[processMessage] Media message sent to Discord successfully! Message ID: ${sentMessage.id}`);
+          } catch (sendError) {
+            // Check if it's a permissions error
+            if (sendError.code === 50013 || sendError.code === 50001 || sendError.message?.includes('Missing Permissions') || sendError.message?.includes('Missing Access')) {
+              Logger.error(`[processMessage] Permission denied sending to channel ${discordChannelId}. Cleaning up mapping.`);
+
+              // Remove the mapping from database
+              try {
+                await this.postgresService.pool.query('DELETE FROM whatsapp_chats WHERE discord_channel_id = $1', [discordChannelId]);
+                Logger.warning(`Removed WhatsApp mapping for inaccessible channel ${discordChannelId}`);
+
+                // Notify admin about the removal
+                if (this.discordClient && this.config.discord?.adminChannelId) {
+                  try {
+                    const chatDisplayName = await this.whatsappService.getChatDisplayName(chatId);
+                    const adminChannel = await this.whatsappService.resolveAdminChannel(this.config.discord.adminChannelId);
+                    if (adminChannel) {
+                      await adminChannel.send(
+                        `⚠️ **WhatsApp Mapping Removed**\n\n` +
+                        `**Reason:** Bot cannot send messages in <#${discordChannelId}>\n` +
+                        `**WhatsApp Chat:** ${chatDisplayName}\n` +
+                        `**Discord Channel:** ${discordChannelId}\n\n` +
+                        `The mapping has been automatically removed. Please reconfigure with a channel the bot has access to.`
+                      );
+                    }
+                  } catch (notifyError) {
+                    Logger.error('Failed to notify admin about removed mapping:', notifyError);
+                  }
+                }
+              } catch (cleanupError) {
+                Logger.error('Failed to clean up mapping after permission error:', cleanupError);
+              }
+              return; // Stop processing this message
+            }
+            throw sendError; // Re-throw if it's not a permissions error
+          }
           
           // Store in DB (always enabled)
           try {
@@ -2253,9 +2327,48 @@ class WhatsAppMessageHandler {
           }
         }
 
-        const sentMessage = await discordChannel.send(messageOptions);
-        
-        Logger.success(`Text message sent to Discord: ${sentMessage.id}`);
+        Logger.info(`[processMessage] Sending text message to Discord channel #${discordChannel.name}`);
+        Logger.debug(`[processMessage] Message options:`, messageOptions);
+
+        let sentMessage;
+        try {
+          sentMessage = await discordChannel.send(messageOptions);
+          Logger.success(`[processMessage] Text message sent to Discord successfully! Message ID: ${sentMessage.id}`);
+        } catch (sendError) {
+          // Check if it's a permissions error
+          if (sendError.code === 50013 || sendError.code === 50001 || sendError.message?.includes('Missing Permissions') || sendError.message?.includes('Missing Access')) {
+            Logger.error(`[processMessage] Permission denied sending to channel ${discordChannelId}. Cleaning up mapping.`);
+
+            // Remove the mapping from database
+            try {
+              await this.postgresService.pool.query('DELETE FROM whatsapp_chats WHERE discord_channel_id = $1', [discordChannelId]);
+              Logger.warning(`Removed WhatsApp mapping for inaccessible channel ${discordChannelId}`);
+
+              // Notify admin about the removal
+              if (this.discordClient && this.config.discord?.adminChannelId) {
+                try {
+                  const chatDisplayName = await this.whatsappService.getChatDisplayName(chatId);
+                  const adminChannel = await this.whatsappService.resolveAdminChannel(this.config.discord.adminChannelId);
+                  if (adminChannel) {
+                    await adminChannel.send(
+                      `⚠️ **WhatsApp Mapping Removed**\n\n` +
+                      `**Reason:** Bot cannot send messages in <#${discordChannelId}>\n` +
+                      `**WhatsApp Chat:** ${chatDisplayName}\n` +
+                      `**Discord Channel:** ${discordChannelId}\n\n` +
+                      `The mapping has been automatically removed. Please reconfigure with a channel the bot has access to.`
+                    );
+                  }
+                } catch (notifyError) {
+                  Logger.error('Failed to notify admin about removed mapping:', notifyError);
+                }
+              }
+            } catch (cleanupError) {
+              Logger.error('Failed to clean up mapping after permission error:', cleanupError);
+            }
+            return; // Stop processing this message
+          }
+          throw sendError; // Re-throw if it's not a permissions error
+        }
         
         // Store in DB (always enabled)
         try {

@@ -10,6 +10,7 @@ type Mapping = { chatId: string; chatName: string; channelId?: string; isActive?
 
 export default function WhatsAppProxyPanel() {
   const [rows, setRows] = useState<Mapping[]>([]);
+  const [initialRows, setInitialRows] = useState<Mapping[]>([]); // Cache initial state for comparison
   const [pending, setPending] = useState(false);
 
   // Use SWR hooks for data fetching with caching
@@ -26,12 +27,15 @@ export default function WhatsAppProxyPanel() {
   // Update rows when chats data changes
   useEffect(() => {
     if (!chatsLoading && chats) {
-      setRows(chats.map((c: any) => ({
+      const mappedRows = chats.map((c: any) => ({
         chatId: c.chat_id,
         chatName: c.chat_name ?? c.chat_id,
         channelId: c.discord_channel_id ?? '',
         isActive: c.is_active
-      })));
+      }));
+      setRows(mappedRows);
+      // Cache initial state for comparison
+      setInitialRows(JSON.parse(JSON.stringify(mappedRows)));
     }
   }, [chats, chatsLoading]);
 
@@ -124,7 +128,7 @@ export default function WhatsAppProxyPanel() {
     return (
       <Listbox value={props.value ?? ''} onChange={props.onChange}>
         <Listbox.Button className="rounded border px-3 py-2 w-64 text-left">
-          {channels.find((c: Channel) => c.id === (props.value ?? ''))?.name ?? 'Select a channel'}
+          {channels.find((c: Channel) => c.id === (props.value ?? ''))?.name ?? 'Select a Channel'}
         </Listbox.Button>
         <Listbox.Options className="absolute z-50 mt-1 max-h-60 w-64 overflow-auto rounded border bg-white shadow">
           {channels
@@ -149,7 +153,7 @@ export default function WhatsAppProxyPanel() {
   }
 
   function addRow() {
-    setRows(prev => [...prev, { chatId: '', chatName: 'New Mapping', channelId: '', isActive: true }]);
+    setRows(prev => [...prev, { chatId: '', chatName: 'Select a Chat', channelId: '', isActive: true }]);
   }
   function removeRow(index: number) {
     setRows(prev => prev.filter((_, i) => i !== index));
@@ -172,18 +176,75 @@ export default function WhatsAppProxyPanel() {
     setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 3500);
   }
 
+  // Detect if mappings have actually changed
+  function hasChanges(): boolean {
+    // Normalize both arrays for comparison
+    const normalize = (mapping: Mapping) => ({
+      chatId: mapping.chatId,
+      channelId: mapping.channelId || '',
+      isActive: mapping.isActive ?? true,
+      chatName: mapping.chatName || mapping.chatId
+    });
+
+    const current = rows.filter(r => r.chatId).map(normalize);
+    const initial = initialRows.filter(r => r.chatId).map(normalize);
+
+    // Check if arrays have different lengths
+    if (current.length !== initial.length) return true;
+
+    // Sort both arrays by chatId for consistent comparison
+    const sortedCurrent = [...current].sort((a, b) => a.chatId.localeCompare(b.chatId));
+    const sortedInitial = [...initial].sort((a, b) => a.chatId.localeCompare(b.chatId));
+
+    // Compare each mapping
+    for (let i = 0; i < sortedCurrent.length; i++) {
+      const curr = sortedCurrent[i];
+      const init = sortedInitial[i];
+      if (
+        curr.chatId !== init.chatId ||
+        curr.channelId !== init.channelId ||
+        curr.isActive !== init.isActive ||
+        curr.chatName !== init.chatName
+      ) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
   async function save() {
     setPending(true);
     try {
+      // Check if there are actual changes
+      const changed = hasChanges();
+      console.log('[WhatsAppProxyPanel] hasChanges() returned:', changed);
+      console.log('[WhatsAppProxyPanel] Current rows:', rows);
+      console.log('[WhatsAppProxyPanel] Initial rows:', initialRows);
+
       // Feature flags handled in Admin; only save mappings here
-      const chatsPayload = { chats: rows.filter(r => r.chatId).map(r => ({ chat_id: r.chatId, discord_channel_id: r.channelId || null, is_active: r.isActive ?? true, chat_name: r.chatName || null })) };
+      const chatsPayload = {
+        chats: rows.filter(r => r.chatId).map(r => ({
+          chat_id: r.chatId,
+          discord_channel_id: r.channelId || null,
+          is_active: r.isActive ?? true,
+          chat_name: r.chatName || null
+        })),
+        hasChanges: changed // Include flag to indicate if there are changes
+      };
+      console.log('[WhatsAppProxyPanel] Sending payload:', chatsPayload);
+
       const res2 = await fetch('/api/whatsapp/chats', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(chatsPayload) });
       if (!res2.ok) throw new Error('Failed to save chats');
 
       // Revalidate the cache after successful save
       mutateChats();
 
-      addToast('WhatsApp mappings saved', 'success');
+      if (changed) {
+        addToast('WhatsApp mappings saved', 'success');
+      } else {
+        addToast('No changes to save', 'success');
+      }
     } finally {
       setPending(false);
     }

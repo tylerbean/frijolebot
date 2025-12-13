@@ -252,11 +252,29 @@ export async function PUT(req: Request) {
         console.log('[admin] caching settings updated');
         const enabledNow = !!toStore.enabled;
         const message = enabledNow ? 'Caching enabled' : 'Caching disabled';
+
+        // Send feature toggle notification
         await fetch(notifyUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', ...(adminToken ? { 'x-admin-token': adminToken } : {}) },
           body: JSON.stringify({ type: 'feature_toggle', payload: { name: 'Caching', enabled: enabledNow, message, channelId } })
         }).catch(()=>{});
+
+        // Send cache reload notification to trigger hot reload
+        await fetch(notifyUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...(adminToken ? { 'x-admin-token': adminToken } : {}) },
+          body: JSON.stringify({
+            type: 'cache_reload',
+            payload: {
+              redisUrl: toStore.redisUrl,
+              enabled: enabledNow,
+              channelId
+            }
+          })
+        }).catch((e)=>{
+          console.error('[admin] Failed to send cache_reload notification:', e);
+        });
       } catch {}
     }
     if (body.rateLimit) {

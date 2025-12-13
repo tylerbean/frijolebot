@@ -20,6 +20,7 @@ COPY config/ ./config/
 COPY services/ ./services/
 COPY handlers/ ./handlers/
 COPY utils/ ./utils/
+COPY modules/ ./modules/
 COPY gateway/ ./gateway/
 COPY discord-link-bot.js ./
 COPY apps/control-panel ./apps/control-panel
@@ -49,6 +50,7 @@ COPY --from=base /app/config ./config
 COPY --from=base /app/services ./services
 COPY --from=base /app/handlers ./handlers
 COPY --from=base /app/utils ./utils
+COPY --from=base /app/modules ./modules
 COPY --from=base /app/gateway ./gateway
 COPY --from=base /app/package*.json ./
 COPY --from=base /app/discord-link-bot.js ./

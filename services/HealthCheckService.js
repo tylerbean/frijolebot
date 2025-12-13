@@ -2,10 +2,11 @@ const http = require('http');
 const Logger = require('../utils/logger');
 
 class HealthCheckService {
-    constructor(discordClient, postgresService, config) {
+    constructor(discordClient, postgresService, config, cacheService = null) {
         this.discordClient = discordClient;
         this.postgresService = postgresService;
         this.config = config;
+        this.cacheService = cacheService;
         this.server = null;
         this.port = config.health.port;
         this.isReady = false;
@@ -212,6 +213,31 @@ class HealthCheckService {
                     }
                     break;
                 }
+                case 'cache_reload': {
+                    // Reload CacheService with new Redis URL
+                    try {
+                        if (!this.cacheService) {
+                            message = '⚠️ Cache reload requested but CacheService not available';
+                            Logger.warning('Cache reload requested but cacheService is not set in HealthCheckService');
+                            break;
+                        }
+                        const newRedisUrl = payload.redisUrl || null;
+                        const enabled = payload.enabled || false;
+                        Logger.info(`Cache reload requested: URL=${newRedisUrl}, enabled=${enabled}`);
+
+                        // Only reinitialize if enabled, otherwise set to null for in-memory
+                        await this.cacheService.reinitialize(enabled ? newRedisUrl : null);
+
+                        const status = this.cacheService.enabled ? `connected to ${newRedisUrl}` : 'using in-memory cache';
+                        message = `🔄 Cache service reloaded: ${status}`;
+                        Logger.success(`Cache service reloaded: ${status}`);
+                    } catch (e) {
+                        message = `❌ Cache reload failed: ${e.message}`;
+                        Logger.error(`Cache reload failed: ${e.message}`);
+                        Logger.error(`Stack: ${e.stack}`);
+                    }
+                    break;
+                }
                 default:
                     message = payload.message || 'Notification';
             }
@@ -231,11 +257,14 @@ class HealthCheckService {
                 }
                 const ch = targetChannelId ? this.discordClient.channels.cache.get(targetChannelId) : null;
                 if (ch) {
-                    await ch.send(message);
-                    Logger.info('Admin notify sent:', type);
+                    Logger.info(`[AdminNotify] Sending message to channel ${targetChannelId}: ${message.substring(0, 100)}...`);
+                    const sentMessage = await ch.send(message);
+                    Logger.info(`[AdminNotify] Message sent successfully, ID: ${sentMessage.id}, type: ${type}`);
                     res.writeHead(200);
                     res.end(JSON.stringify({ ok: true }));
                     return;
+                } else {
+                    Logger.warning(`[AdminNotify] Channel not found or unavailable. targetChannelId: ${targetChannelId}, hasClient: ${!!this.discordClient}`);
                 }
             }
             Logger.warning('Discord not ready or admin channel missing; notification not delivered');

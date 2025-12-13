@@ -38,14 +38,34 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, code: 'invalid_scheme', error: 'Redis URL must start with redis:// or rediss://.' }, { status: 422 });
     }
 
-    client = createClient({ url: urlStr });
-    await client.connect();
-    await client.ping();
-    await client.quit();
+    // Create client with 1s timeout
+    client = createClient({
+      url: urlStr,
+      socket: {
+        connectTimeout: 1000,
+        reconnectStrategy: false
+      }
+    });
+
+    // Wrap connect/ping in a timeout promise
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('Connection timeout (1s)')), 1000)
+    );
+
+    await Promise.race([
+      (async () => {
+        await client.connect();
+        await client.ping();
+        await client.quit();
+      })(),
+      timeoutPromise
+    ]);
+
     return NextResponse.json({ ok: true }, { status: 200 });
   } catch (e: any) {
     try { client && (await client.quit()); } catch {}
-    return NextResponse.json({ ok: false, code: 'connection_failed', error: e.message }, { status: 502 });
+    const error = e.message || e.toString() || 'Unknown error';
+    return NextResponse.json({ ok: false, code: 'connection_failed', error }, { status: 502 });
   }
 }
 

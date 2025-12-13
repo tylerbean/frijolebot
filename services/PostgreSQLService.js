@@ -343,6 +343,136 @@ class PostgreSQLService {
                 );
             }
 
+            // ===== Module System Tables =====
+
+            // Create Modules registry table
+            await this.pool.query(`
+                CREATE TABLE IF NOT EXISTS modules (
+                    id VARCHAR(50) PRIMARY KEY,
+                    name VARCHAR(100) NOT NULL,
+                    description TEXT,
+                    version VARCHAR(20),
+                    dependencies TEXT[],
+                    config_schema JSONB,
+                    default_config JSONB,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                )
+            `);
+
+            // Create Module states table (per-guild state)
+            await this.pool.query(`
+                CREATE TABLE IF NOT EXISTS module_states (
+                    id SERIAL PRIMARY KEY,
+                    module_id VARCHAR(50) NOT NULL REFERENCES modules(id) ON DELETE CASCADE,
+                    guild_id VARCHAR(20) NOT NULL,
+                    enabled BOOLEAN DEFAULT FALSE,
+                    config JSONB,
+                    enabled_by VARCHAR(20),
+                    enabled_at TIMESTAMP WITH TIME ZONE,
+                    disabled_at TIMESTAMP WITH TIME ZONE,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(module_id, guild_id)
+                )
+            `);
+
+            await this.pool.query(`
+                CREATE INDEX IF NOT EXISTS idx_module_states_guild
+                ON module_states(guild_id)
+            `);
+
+            await this.pool.query(`
+                CREATE INDEX IF NOT EXISTS idx_module_states_enabled
+                ON module_states(enabled)
+            `);
+
+            // Create User tracking preferences table
+            await this.pool.query(`
+                CREATE TABLE IF NOT EXISTS user_tracking_preferences (
+                    id SERIAL PRIMARY KEY,
+                    guild_id VARCHAR(20) NOT NULL,
+                    tracker_user_id VARCHAR(20) NOT NULL,
+                    tracked_user_id VARCHAR(20) NOT NULL,
+                    tracked_username VARCHAR(100),
+                    notification_enabled BOOLEAN DEFAULT FALSE,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(guild_id, tracker_user_id, tracked_user_id),
+                    CHECK (tracker_user_id != tracked_user_id)
+                )
+            `);
+
+            await this.pool.query(`
+                CREATE INDEX IF NOT EXISTS idx_tracking_prefs_tracker
+                ON user_tracking_preferences(guild_id, tracker_user_id)
+            `);
+
+            await this.pool.query(`
+                CREATE INDEX IF NOT EXISTS idx_tracking_prefs_tracked
+                ON user_tracking_preferences(tracked_user_id)
+            `);
+
+            // Create Tracked messages table
+            await this.pool.query(`
+                CREATE TABLE IF NOT EXISTS tracked_messages (
+                    id SERIAL PRIMARY KEY,
+                    guild_id VARCHAR(20) NOT NULL,
+                    tracker_user_id VARCHAR(20) NOT NULL,
+                    message_id VARCHAR(20) NOT NULL,
+                    channel_id VARCHAR(20) NOT NULL,
+                    author_id VARCHAR(20) NOT NULL,
+                    author_username VARCHAR(100),
+                    message_preview VARCHAR(200),
+                    read BOOLEAN DEFAULT FALSE,
+                    read_at TIMESTAMP WITH TIME ZONE,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+                    UNIQUE(guild_id, tracker_user_id, message_id)
+                )
+            `);
+
+            await this.pool.query(`
+                CREATE INDEX IF NOT EXISTS idx_tracked_msgs_unread
+                ON tracked_messages(guild_id, tracker_user_id, read)
+            `);
+
+            await this.pool.query(`
+                CREATE INDEX IF NOT EXISTS idx_tracked_msgs_expires
+                ON tracked_messages(expires_at)
+            `);
+
+            await this.pool.query(`
+                CREATE INDEX IF NOT EXISTS idx_tracked_msgs_author
+                ON tracked_messages(guild_id, author_id)
+            `);
+
+            // Add columns to existing whatsapp_chats table
+            try {
+                await this.pool.query(`ALTER TABLE whatsapp_chats ADD COLUMN IF NOT EXISTS sync_media BOOLEAN DEFAULT TRUE`);
+                await this.pool.query(`ALTER TABLE whatsapp_chats ADD COLUMN IF NOT EXISTS last_message_at TIMESTAMP WITH TIME ZONE`);
+                await this.pool.query(`ALTER TABLE whatsapp_chats ADD COLUMN IF NOT EXISTS guild_id VARCHAR(20)`);
+            } catch (_) {}
+
+            await this.pool.query(`
+                CREATE INDEX IF NOT EXISTS idx_whatsapp_chats_guild
+                ON whatsapp_chats(guild_id)
+            `);
+
+            // Add columns to existing whatsapp_sessions table
+            try {
+                await this.pool.query(`ALTER TABLE whatsapp_sessions ADD COLUMN IF NOT EXISTS guild_id VARCHAR(20)`);
+                await this.pool.query(`ALTER TABLE whatsapp_sessions ADD COLUMN IF NOT EXISTS qr_retry_count INTEGER DEFAULT 0`);
+                await this.pool.query(`ALTER TABLE whatsapp_sessions ADD COLUMN IF NOT EXISTS last_qr_generated_at TIMESTAMP WITH TIME ZONE`);
+                await this.pool.query(`ALTER TABLE whatsapp_sessions ADD COLUMN IF NOT EXISTS phone_number VARCHAR(20)`);
+                await this.pool.query(`ALTER TABLE whatsapp_sessions ADD COLUMN IF NOT EXISTS last_connected_at TIMESTAMP WITH TIME ZONE`);
+            } catch (_) {}
+
+            await this.pool.query(`
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_whatsapp_sessions_guild
+                ON whatsapp_sessions(guild_id)
+            `);
+
             Logger.success('PostgreSQL database schema initialized successfully');
             return true;
         } catch (error) {

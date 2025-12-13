@@ -30,6 +30,14 @@ const server = http.createServer((req, res) => {
   if (url === '/health' || url.startsWith('/health/')) {
     return proxyTo(BOT_PORT, req, res);
   }
+  // Admin notify endpoint → bot
+  if (url.startsWith('/admin/notify')) {
+    return proxyTo(BOT_PORT, req, res);
+  }
+  // WhatsApp chats endpoint → bot
+  if (url.startsWith('/whatsapp/chats')) {
+    return proxyTo(BOT_PORT, req, res);
+  }
   // Bot endpoints under /api/bot/* → strip prefix and send to bot
   if (url.startsWith('/api/bot/')) {
     req.url = url.replace('/api/bot', '');

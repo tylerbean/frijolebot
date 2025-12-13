@@ -65,7 +65,10 @@ export async function PUT(request: Request) {
       is_active: z.boolean().optional(),
       chat_name: z.string().min(1).max(255).nullable().optional()
     }).strict();
-    const schema = z.object({ chats: z.array(chatSchema).max(1000) }).strict();
+    const schema = z.object({
+      chats: z.array(chatSchema).max(1000),
+      hasChanges: z.boolean().optional()
+    }).strict();
     const parsed = schema.safeParse(body);
     if (!parsed.success) return NextResponse.json({ error: 'invalid_payload' }, { status: 422 });
     const pool = getPool();
@@ -119,17 +122,25 @@ export async function PUT(request: Request) {
     } finally {
       client.release();
     }
-    // Notify bot admin channel
-    try {
-      const url = process.env.WHATSAPP_BOT_HEALTH_URL?.replace('/whatsapp/chats', '/admin/notify') || 'http://localhost:3000/admin/notify';
-      const token = process.env.ADMIN_NOTIFY_TOKEN || process.env.NEXT_PUBLIC_ADMIN_NOTIFY_TOKEN;
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...(token ? { 'x-admin-token': token } : {}) },
-        body: JSON.stringify({ type: 'whatsapp_mappings_updated', payload: { items: parsed.data.chats } })
-      });
-      // ignore response
-    } catch (_) {}
+    // Only notify bot admin channel if there are actual changes
+    const hasChanges = parsed.data.hasChanges;
+    console.log('[whatsapp/chats] hasChanges flag from frontend:', hasChanges);
+
+    if (hasChanges !== false) {
+      console.log('[whatsapp/chats] Sending Discord notification (hasChanges is not false)');
+      try {
+        const url = process.env.WHATSAPP_BOT_HEALTH_URL?.replace('/whatsapp/chats', '/admin/notify') || 'http://localhost:3000/admin/notify';
+        const token = process.env.ADMIN_NOTIFY_TOKEN || process.env.NEXT_PUBLIC_ADMIN_NOTIFY_TOKEN;
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...(token ? { 'x-admin-token': token } : {}) },
+          body: JSON.stringify({ type: 'whatsapp_mappings_updated', payload: { items: parsed.data.chats } })
+        });
+        // ignore response
+      } catch (_) {}
+    } else {
+      console.log('[whatsapp/chats] Skipping Discord notification (no changes detected)');
+    }
     return NextResponse.json({ ok: true });
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 500 });
