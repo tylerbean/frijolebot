@@ -1,0 +1,386 @@
+openapi: 3.0.3
+info:
+  title: Module Management API
+  description: REST API for managing feature modules in FrijoleBot
+  version: 1.0.0
+  contact:
+    name: FrijoleBot Development
+
+servers:
+  - url: http://localhost:3000/api/modules
+    description: Local development
+  - url: /api/modules
+    description: Production (relative URL)
+
+paths:
+  /:
+    get:
+      summary: List all available modules
+      description: Returns all registered modules with their current state for the specified guild
+      operationId: listModules
+      parameters:
+        - name: guild_id
+          in: query
+          required: true
+          description: Discord guild (server) ID
+          schema:
+            type: string
+            pattern: '^\d{17,19}$'
+            example: "123456789012345678"
+      responses:
+        '200':
+          description: List of modules
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  modules:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ModuleStatus'
+        '400':
+          description: Invalid guild_id parameter
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /{moduleId}:
+    get:
+      summary: Get module details
+      description: Returns detailed information about a specific module
+      operationId: getModule
+      parameters:
+        - name: moduleId
+          in: path
+          required: true
+          description: Module identifier
+          schema:
+            type: string
+            pattern: '^[a-z0-9-]+$'
+            example: "whatsapp"
+        - name: guild_id
+          in: query
+          required: true
+          description: Discord guild ID
+          schema:
+            type: string
+            example: "123456789012345678"
+      responses:
+        '200':
+          description: Module details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModuleDetails'
+        '404':
+          description: Module not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /{moduleId}/enable:
+    post:
+      summary: Enable a module
+      description: Enables a module for the specified guild with optional configuration
+      operationId: enableModule
+      parameters:
+        - name: moduleId
+          in: path
+          required: true
+          schema:
+            type: string
+            example: "whatsapp"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - guild_id
+              properties:
+                guild_id:
+                  type: string
+                  description: Discord guild ID
+                  example: "123456789012345678"
+                config:
+                  type: object
+                  description: Module-specific configuration (must conform to module's config_schema)
+                  example:
+                    adminChannelId: "987654321098765432"
+                    maxChatMappings: 10
+                enabled_by:
+                  type: string
+                  description: Discord user ID who is enabling the module
+                  example: "111222333444555666"
+      responses:
+        '200':
+          description: Module enabled successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  module_id:
+                    type: string
+                    example: "whatsapp"
+                  enabled:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "WhatsApp Integration enabled successfully"
+        '400':
+          description: Invalid configuration or missing dependencies
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalid_config:
+                  summary: Configuration validation error
+                  value:
+                    error: "Invalid configuration"
+                    details:
+                      field: "adminChannelId"
+                      message: "Required property missing"
+                missing_dependency:
+                  summary: Dependency not met
+                  value:
+                    error: "Missing dependency"
+                    details:
+                      required: ["base-module"]
+                      message: "Enable base-module first"
+        '409':
+          description: Module already enabled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /{moduleId}/disable:
+    post:
+      summary: Disable a module
+      description: Disables a module for the specified guild
+      operationId: disableModule
+      parameters:
+        - name: moduleId
+          in: path
+          required: true
+          schema:
+            type: string
+            example: "whatsapp"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - guild_id
+              properties:
+                guild_id:
+                  type: string
+                  description: Discord guild ID
+                  example: "123456789012345678"
+      responses:
+        '200':
+          description: Module disabled successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  module_id:
+                    type: string
+                    example: "whatsapp"
+                  enabled:
+                    type: boolean
+                    example: false
+                  message:
+                    type: string
+                    example: "WhatsApp Integration disabled successfully"
+        '400':
+          description: Cannot disable module (dependents still enabled)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: "Cannot disable module"
+                details:
+                  dependents: ["some-other-module"]
+                  message: "Disable dependent modules first"
+        '404':
+          description: Module not found or not enabled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /{moduleId}/health:
+    get:
+      summary: Get module health status
+      description: Returns current health status of an enabled module
+      operationId: getModuleHealth
+      parameters:
+        - name: moduleId
+          in: path
+          required: true
+          schema:
+            type: string
+            example: "whatsapp"
+        - name: guild_id
+          in: query
+          required: true
+          schema:
+            type: string
+            example: "123456789012345678"
+      responses:
+        '200':
+          description: Module health status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModuleHealth'
+        '404':
+          description: Module not found or not enabled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+components:
+  schemas:
+    ModuleStatus:
+      type: object
+      required:
+        - id
+        - name
+        - enabled
+        - version
+      properties:
+        id:
+          type: string
+          description: Unique module identifier
+          example: "whatsapp"
+        name:
+          type: string
+          description: Human-readable module name
+          example: "WhatsApp Integration"
+        description:
+          type: string
+          description: Module purpose
+          example: "Sync WhatsApp chats to Discord channels"
+        version:
+          type: string
+          description: Semantic version
+          example: "1.0.0"
+        enabled:
+          type: boolean
+          description: Whether module is currently enabled for this guild
+          example: true
+        dependencies:
+          type: array
+          description: Required module dependencies
+          items:
+            type: string
+          example: []
+        health_status:
+          type: string
+          enum: [healthy, degraded, unhealthy, unknown]
+          description: Current health status (if enabled)
+          example: "healthy"
+
+    ModuleDetails:
+      allOf:
+        - $ref: '#/components/schemas/ModuleStatus'
+        - type: object
+          properties:
+            config_schema:
+              type: object
+              description: JSON Schema for module configuration
+              example:
+                type: object
+                properties:
+                  adminChannelId:
+                    type: string
+                  maxChatMappings:
+                    type: number
+                    default: 10
+            current_config:
+              type: object
+              description: Current guild-specific configuration
+              example:
+                adminChannelId: "987654321098765432"
+                maxChatMappings: 10
+            enabled_at:
+              type: string
+              format: date-time
+              description: When module was enabled
+              example: "2025-12-11T10:00:00Z"
+            enabled_by:
+              type: string
+              description: Discord user ID who enabled the module
+              example: "111222333444555666"
+
+    ModuleHealth:
+      type: object
+      required:
+        - module_id
+        - status
+        - timestamp
+      properties:
+        module_id:
+          type: string
+          example: "whatsapp"
+        status:
+          type: string
+          enum: [healthy, degraded, unhealthy]
+          description: Health status
+          example: "healthy"
+        timestamp:
+          type: string
+          format: date-time
+          description: When health was checked
+          example: "2025-12-11T10:30:00Z"
+        details:
+          type: object
+          description: Module-specific health details
+          example:
+            connected: true
+            session_status: "active"
+            last_message_at: "2025-12-11T10:25:00Z"
+        errors:
+          type: array
+          description: List of current errors (if any)
+          items:
+            type: string
+          example: []
+
+    Error:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: string
+          description: Error message
+          example: "Invalid configuration"
+        details:
+          type: object
+          description: Additional error details
+          additionalProperties: true
+        code:
+          type: string
+          description: Error code for programmatic handling
+          example: "INVALID_CONFIG"

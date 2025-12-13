@@ -1,0 +1,423 @@
+openapi: 3.0.3
+info:
+  title: WhatsApp Module API
+  description: REST API for WhatsApp-Discord integration module
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:3000/api/modules/whatsapp
+    description: Local development
+  - url: /api/modules/whatsapp
+    description: Production
+
+paths:
+  /session/status:
+    get:
+      summary: Get WhatsApp session status
+      description: Returns current WhatsApp connection status for the guild
+      operationId: getSessionStatus
+      parameters:
+        - name: guild_id
+          in: query
+          required: true
+          schema:
+            type: string
+            example: "123456789012345678"
+      responses:
+        '200':
+          description: Session status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionStatus'
+
+  /session/qr:
+    post:
+      summary: Request new QR code
+      description: Generates a new QR code for WhatsApp authentication and posts to admin channel
+      operationId: requestQRCode
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - guild_id
+              properties:
+                guild_id:
+                  type: string
+                  example: "123456789012345678"
+                admin_channel_id:
+                  type: string
+                  description: Discord channel ID where QR code will be posted
+                  example: "987654321098765432"
+      responses:
+        '200':
+          description: QR code generated and posted to Discord
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "QR code posted to admin channel"
+                  qr_generated_at:
+                    type: string
+                    format: date-time
+                    example: "2025-12-11T10:00:00Z"
+        '429':
+          description: Too many QR code requests (rate limited)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /chats:
+    get:
+      summary: List chat mappings
+      description: Returns all WhatsApp-to-Discord chat mappings for the guild
+      operationId: listChatMappings
+      parameters:
+        - name: guild_id
+          in: query
+          required: true
+          schema:
+            type: string
+            example: "123456789012345678"
+        - name: active_only
+          in: query
+          required: false
+          description: Filter to only active mappings
+          schema:
+            type: boolean
+            default: true
+      responses:
+        '200':
+          description: List of chat mappings
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  mappings:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ChatMapping'
+
+    post:
+      summary: Create chat mapping
+      description: Creates a new WhatsApp-to-Discord chat mapping
+      operationId: createChatMapping
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - guild_id
+                - chat_id
+                - discord_channel_id
+              properties:
+                guild_id:
+                  type: string
+                  example: "123456789012345678"
+                chat_id:
+                  type: string
+                  description: WhatsApp chat ID (format {id}@c.us or {id}@g.us)
+                  example: "5511998765432@c.us"
+                discord_channel_id:
+                  type: string
+                  example: "987654321098765432"
+                chat_name:
+                  type: string
+                  description: Display name for the chat
+                  example: "John Doe"
+                sync_media:
+                  type: boolean
+                  description: Whether to forward media attachments
+                  default: true
+      responses:
+        '201':
+          description: Chat mapping created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatMapping'
+        '400':
+          description: Invalid chat_id format or mapping already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Chat mapping already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /chats/{chatId}:
+    get:
+      summary: Get chat mapping details
+      description: Returns details for a specific chat mapping
+      operationId: getChatMapping
+      parameters:
+        - name: chatId
+          in: path
+          required: true
+          description: WhatsApp chat ID
+          schema:
+            type: string
+            example: "5511998765432@c.us"
+        - name: guild_id
+          in: query
+          required: true
+          schema:
+            type: string
+            example: "123456789012345678"
+      responses:
+        '200':
+          description: Chat mapping details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatMapping'
+        '404':
+          description: Chat mapping not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    patch:
+      summary: Update chat mapping
+      description: Updates configuration for an existing chat mapping
+      operationId: updateChatMapping
+      parameters:
+        - name: chatId
+          in: path
+          required: true
+          schema:
+            type: string
+            example: "5511998765432@c.us"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - guild_id
+              properties:
+                guild_id:
+                  type: string
+                  example: "123456789012345678"
+                discord_channel_id:
+                  type: string
+                  example: "987654321098765432"
+                is_active:
+                  type: boolean
+                  description: Enable/disable forwarding
+                sync_media:
+                  type: boolean
+      responses:
+        '200':
+          description: Chat mapping updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatMapping'
+        '404':
+          description: Chat mapping not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    delete:
+      summary: Delete chat mapping
+      description: Removes a WhatsApp-to-Discord chat mapping
+      operationId: deleteChatMapping
+      parameters:
+        - name: chatId
+          in: path
+          required: true
+          schema:
+            type: string
+            example: "5511998765432@c.us"
+        - name: guild_id
+          in: query
+          required: true
+          schema:
+            type: string
+            example: "123456789012345678"
+      responses:
+        '204':
+          description: Chat mapping deleted successfully
+        '404':
+          description: Chat mapping not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /chats/available:
+    get:
+      summary: List available WhatsApp chats
+      description: Returns chats available from authenticated WhatsApp session
+      operationId: listAvailableChats
+      parameters:
+        - name: guild_id
+          in: query
+          required: true
+          schema:
+            type: string
+            example: "123456789012345678"
+      responses:
+        '200':
+          description: List of available chats
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  chats:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AvailableChat'
+        '503':
+          description: WhatsApp not connected
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: "WhatsApp not connected"
+                message: "Authenticate with /whatsapp_auth command first"
+
+components:
+  schemas:
+    SessionStatus:
+      type: object
+      required:
+        - status
+        - guild_id
+      properties:
+        guild_id:
+          type: string
+          example: "123456789012345678"
+        status:
+          type: string
+          enum: [disconnected, connecting, connected, failed]
+          example: "connected"
+        phone_number:
+          type: string
+          description: Authenticated phone number (if connected)
+          example: "+5511998765432"
+        last_connected_at:
+          type: string
+          format: date-time
+          example: "2025-12-11T08:00:00Z"
+        last_qr_generated_at:
+          type: string
+          format: date-time
+          example: "2025-12-11T07:55:00Z"
+        qr_retry_count:
+          type: integer
+          description: Number of QR code generation attempts
+          example: 1
+
+    ChatMapping:
+      type: object
+      required:
+        - id
+        - guild_id
+        - chat_id
+        - discord_channel_id
+        - is_active
+      properties:
+        id:
+          type: integer
+          description: Mapping record ID
+          example: 1
+        guild_id:
+          type: string
+          example: "123456789012345678"
+        chat_id:
+          type: string
+          description: WhatsApp chat ID
+          example: "5511998765432@c.us"
+        discord_channel_id:
+          type: string
+          example: "987654321098765432"
+        chat_name:
+          type: string
+          example: "John Doe"
+        chat_type:
+          type: string
+          enum: [individual, group]
+          example: "individual"
+        is_active:
+          type: boolean
+          example: true
+        sync_media:
+          type: boolean
+          example: true
+        last_message_at:
+          type: string
+          format: date-time
+          example: "2025-12-11T09:30:00Z"
+        created_at:
+          type: string
+          format: date-time
+          example: "2025-12-01T10:00:00Z"
+
+    AvailableChat:
+      type: object
+      required:
+        - chat_id
+        - name
+        - type
+      properties:
+        chat_id:
+          type: string
+          example: "5511998765432@c.us"
+        name:
+          type: string
+          description: Chat display name
+          example: "John Doe"
+        type:
+          type: string
+          enum: [individual, group]
+          example: "individual"
+        last_message_timestamp:
+          type: integer
+          description: Unix timestamp of last message
+          example: 1702295400
+        unread_count:
+          type: integer
+          description: Number of unread messages in WhatsApp
+          example: 3
+
+    Error:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: string
+          example: "Invalid chat_id format"
+        message:
+          type: string
+          description: Human-readable error message
+          example: "Chat ID must match pattern {id}@c.us or {id}@g.us"
+        code:
+          type: string
+          description: Error code
+          example: "INVALID_CHAT_ID"

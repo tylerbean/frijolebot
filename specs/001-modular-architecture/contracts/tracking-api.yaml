@@ -1,0 +1,514 @@
+openapi: 3.0.3
+info:
+  title: Message Tracking Module API
+  description: REST API for tracking messages from specific Discord users
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:3000/api/modules/tracking
+    description: Local development
+  - url: /api/modules/tracking
+    description: Production
+
+paths:
+  /preferences:
+    get:
+      summary: Get tracking preferences
+      description: Returns list of users being tracked by the requester
+      operationId: getTrackingPreferences
+      parameters:
+        - name: guild_id
+          in: query
+          required: true
+          schema:
+            type: string
+            example: "123456789012345678"
+        - name: tracker_user_id
+          in: query
+          required: true
+          description: Discord user ID of person doing tracking
+          schema:
+            type: string
+            example: "111222333444555666"
+      responses:
+        '200':
+          description: List of tracking preferences
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  preferences:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/TrackingPreference'
+
+    post:
+      summary: Add user to tracking list
+      description: Start tracking messages from a specific user
+      operationId: addTrackingPreference
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - guild_id
+                - tracker_user_id
+                - tracked_user_id
+              properties:
+                guild_id:
+                  type: string
+                  example: "123456789012345678"
+                tracker_user_id:
+                  type: string
+                  example: "111222333444555666"
+                tracked_user_id:
+                  type: string
+                  example: "999888777666555444"
+                tracked_username:
+                  type: string
+                  description: Username for display (cached)
+                  example: "alice#1234"
+                notification_enabled:
+                  type: boolean
+                  description: Enable DM notifications for new messages
+                  default: false
+      responses:
+        '201':
+          description: Tracking preference created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TrackingPreference'
+        '400':
+          description: Invalid request (e.g., trying to track yourself)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: "Cannot track yourself"
+                code: "SELF_TRACKING"
+        '409':
+          description: Already tracking this user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /preferences/{trackedUserId}:
+    delete:
+      summary: Remove user from tracking list
+      description: Stop tracking messages from a specific user
+      operationId: removeTrackingPreference
+      parameters:
+        - name: trackedUserId
+          in: path
+          required: true
+          description: Discord user ID being tracked
+          schema:
+            type: string
+            example: "999888777666555444"
+        - name: guild_id
+          in: query
+          required: true
+          schema:
+            type: string
+            example: "123456789012345678"
+        - name: tracker_user_id
+          in: query
+          required: true
+          schema:
+            type: string
+            example: "111222333444555666"
+      responses:
+        '204':
+          description: Tracking preference removed
+        '404':
+          description: Tracking preference not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    patch:
+      summary: Update tracking preference
+      description: Modify tracking settings for a user
+      operationId: updateTrackingPreference
+      parameters:
+        - name: trackedUserId
+          in: path
+          required: true
+          schema:
+            type: string
+            example: "999888777666555444"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - guild_id
+                - tracker_user_id
+              properties:
+                guild_id:
+                  type: string
+                  example: "123456789012345678"
+                tracker_user_id:
+                  type: string
+                  example: "111222333444555666"
+                notification_enabled:
+                  type: boolean
+                  description: Enable/disable DM notifications
+      responses:
+        '200':
+          description: Tracking preference updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TrackingPreference'
+        '404':
+          description: Tracking preference not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /messages/unread:
+    get:
+      summary: Get unread tracked messages
+      description: Returns all unread messages from tracked users
+      operationId: getUnreadMessages
+      parameters:
+        - name: guild_id
+          in: query
+          required: true
+          schema:
+            type: string
+            example: "123456789012345678"
+        - name: tracker_user_id
+          in: query
+          required: true
+          schema:
+            type: string
+            example: "111222333444555666"
+        - name: limit
+          in: query
+          required: false
+          description: Maximum number of messages to return
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+        - name: offset
+          in: query
+          required: false
+          description: Pagination offset
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        '200':
+          description: List of unread messages
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  messages:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/TrackedMessage'
+                  total:
+                    type: integer
+                    description: Total count of unread messages
+                    example: 42
+                  limit:
+                    type: integer
+                    example: 50
+                  offset:
+                    type: integer
+                    example: 0
+
+  /messages/{messageId}/read:
+    post:
+      summary: Mark message as read
+      description: Marks a tracked message as read
+      operationId: markMessageAsRead
+      parameters:
+        - name: messageId
+          in: path
+          required: true
+          description: Discord message ID
+          schema:
+            type: string
+            example: "1234567890123456789"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - guild_id
+                - tracker_user_id
+              properties:
+                guild_id:
+                  type: string
+                  example: "123456789012345678"
+                tracker_user_id:
+                  type: string
+                  example: "111222333444555666"
+      responses:
+        '200':
+          description: Message marked as read
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message_id:
+                    type: string
+                    example: "1234567890123456789"
+                  read:
+                    type: boolean
+                    example: true
+                  read_at:
+                    type: string
+                    format: date-time
+                    example: "2025-12-11T10:30:00Z"
+        '404':
+          description: Tracked message not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /messages/bulk-read:
+    post:
+      summary: Mark multiple messages as read
+      description: Marks multiple tracked messages as read in a single operation
+      operationId: bulkMarkAsRead
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - guild_id
+                - tracker_user_id
+                - message_ids
+              properties:
+                guild_id:
+                  type: string
+                  example: "123456789012345678"
+                tracker_user_id:
+                  type: string
+                  example: "111222333444555666"
+                message_ids:
+                  type: array
+                  items:
+                    type: string
+                  example: ["1234567890123456789", "9876543210987654321"]
+      responses:
+        '200':
+          description: Messages marked as read
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  marked_count:
+                    type: integer
+                    description: Number of messages successfully marked as read
+                    example: 2
+                  read_at:
+                    type: string
+                    format: date-time
+                    example: "2025-12-11T10:30:00Z"
+
+  /stats:
+    get:
+      summary: Get tracking statistics
+      description: Returns statistics about tracked messages for the user
+      operationId: getTrackingStats
+      parameters:
+        - name: guild_id
+          in: query
+          required: true
+          schema:
+            type: string
+            example: "123456789012345678"
+        - name: tracker_user_id
+          in: query
+          required: true
+          schema:
+            type: string
+            example: "111222333444555666"
+      responses:
+        '200':
+          description: Tracking statistics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TrackingStats'
+
+components:
+  schemas:
+    TrackingPreference:
+      type: object
+      required:
+        - id
+        - guild_id
+        - tracker_user_id
+        - tracked_user_id
+      properties:
+        id:
+          type: integer
+          example: 1
+        guild_id:
+          type: string
+          example: "123456789012345678"
+        tracker_user_id:
+          type: string
+          description: User doing the tracking
+          example: "111222333444555666"
+        tracked_user_id:
+          type: string
+          description: User being tracked
+          example: "999888777666555444"
+        tracked_username:
+          type: string
+          description: Cached username for display
+          example: "alice#1234"
+        notification_enabled:
+          type: boolean
+          description: Whether DM notifications are enabled
+          example: false
+        created_at:
+          type: string
+          format: date-time
+          example: "2025-12-01T10:00:00Z"
+
+    TrackedMessage:
+      type: object
+      required:
+        - id
+        - message_id
+        - channel_id
+        - author_id
+        - read
+        - created_at
+      properties:
+        id:
+          type: integer
+          description: Tracking record ID
+          example: 1
+        message_id:
+          type: string
+          description: Discord message ID
+          example: "1234567890123456789"
+        channel_id:
+          type: string
+          description: Discord channel ID where message was sent
+          example: "987654321098765432"
+        author_id:
+          type: string
+          description: Discord user ID who sent the message
+          example: "999888777666555444"
+        author_username:
+          type: string
+          description: Cached username of message author
+          example: "alice#1234"
+        message_preview:
+          type: string
+          description: First 200 characters of message content
+          example: "Hey, did you see the latest update on the project? We need to discuss..."
+        read:
+          type: boolean
+          description: Whether message has been marked as read
+          example: false
+        read_at:
+          type: string
+          format: date-time
+          description: When message was marked as read (if read=true)
+          example: null
+        created_at:
+          type: string
+          format: date-time
+          description: When message was sent
+          example: "2025-12-11T10:00:00Z"
+        expires_at:
+          type: string
+          format: date-time
+          description: When message will be purged (created_at + 30 days)
+          example: "2026-01-10T10:00:00Z"
+
+    TrackingStats:
+      type: object
+      required:
+        - total_tracked_users
+        - total_unread_messages
+        - total_tracked_messages
+      properties:
+        total_tracked_users:
+          type: integer
+          description: Number of users being tracked
+          example: 3
+        total_unread_messages:
+          type: integer
+          description: Total unread messages from all tracked users
+          example: 12
+        total_tracked_messages:
+          type: integer
+          description: Total messages tracked (read + unread)
+          example: 42
+        unread_by_user:
+          type: array
+          description: Breakdown of unread messages per tracked user
+          items:
+            type: object
+            properties:
+              user_id:
+                type: string
+                example: "999888777666555444"
+              username:
+                type: string
+                example: "alice#1234"
+              unread_count:
+                type: integer
+                example: 5
+        oldest_unread_at:
+          type: string
+          format: date-time
+          description: Timestamp of oldest unread message
+          example: "2025-12-05T14:30:00Z"
+
+    Error:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: string
+          example: "Tracking preference not found"
+        message:
+          type: string
+          description: Human-readable error message
+          example: "No tracking preference found for user 999888777666555444"
+        code:
+          type: string
+          description: Error code
+          example: "NOT_FOUND"
