@@ -17,6 +17,7 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(true);
   const [discordTest, setDiscordTest] = useState<string>('');
   const [redisTest, setRedisTest] = useState<string>('');
+  const [redisConnected, setRedisConnected] = useState<boolean | null>(null);
   const [discordChannels, setDiscordChannels] = useState<Array<{ id: string; name: string }>>([]);
   const [toasts, setToasts] = useState<Array<{ id: number; kind: 'success' | 'error'; message: string }>>([]);
   const [showGuildWarning, setShowGuildWarning] = useState(false);
@@ -55,6 +56,31 @@ export default function AdminPage() {
       } catch {}
     })();
   }, [s?.discord?.guildId]);
+
+  // Poll Redis connection status every 5 seconds when caching is enabled
+  useEffect(() => {
+    if (!s?.caching?.enabled) {
+      setRedisConnected(null);
+      return;
+    }
+
+    const checkRedisStatus = async () => {
+      try {
+        const res = await fetch('/api/admin/redis-status', { cache: 'no-store' }).then(r => r.json());
+        setRedisConnected(res.connected === true);
+      } catch {
+        setRedisConnected(false);
+      }
+    };
+
+    // Check immediately
+    checkRedisStatus();
+
+    // Then poll every 5 seconds
+    const interval = setInterval(checkRedisStatus, 5000);
+
+    return () => clearInterval(interval);
+  }, [s?.caching?.enabled, s?.caching?.redisUrl]);
 
   if (loading || !s) return <main className="mx-auto max-w-5xl p-6">Loading...</main>;
 
@@ -169,10 +195,14 @@ export default function AdminPage() {
       try {
         if (!s.caching.redisUrl || s.caching.redisUrl.trim() === '') {
           setRedisTest('');
+          setRedisConnected(null);
         } else {
           const res = await fetch('/api/admin/test/redis', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) }).then(r=>r.json());
           const err = res?.error || res?.code || 'Unknown error';
           setRedisTest(res.ok ? 'Redis OK' : `Failed: ${err}`);
+          // Trigger immediate status check
+          const statusRes = await fetch('/api/admin/redis-status', { cache: 'no-store' }).then(r => r.json());
+          setRedisConnected(statusRes.connected === true);
         }
       } catch {}
     } catch (e: any) {
@@ -206,8 +236,12 @@ export default function AdminPage() {
       const err = res?.error || res?.code || 'Unknown error';
       setRedisTest(res.ok ? 'Redis OK' : `Failed: ${err}`);
       addToast(res.ok ? 'Redis connected' : `Redis test failed: ${err}`, res.ok ? 'success' : 'error');
+      // Trigger immediate status check
+      const statusRes = await fetch('/api/admin/redis-status', { cache: 'no-store' }).then(r => r.json());
+      setRedisConnected(statusRes.connected === true);
     } catch (e: any) {
       addToast(`Redis test failed: ${e.message || e}`, 'error');
+      setRedisConnected(false);
     }
   }
 
@@ -361,6 +395,22 @@ export default function AdminPage() {
           <button onClick={testRedis} className="rounded bg-indigo-600 px-3 py-2 text-white">Test Redis</button>
           <button onClick={saveCaching} className="rounded bg-green-600 px-3 py-2 text-white">Save</button>
           <span className="text-sm text-gray-600">{redisTest}</span>
+          {s.caching.enabled && redisConnected !== null && (
+            <div className="flex items-center gap-2 ml-auto">
+              <div
+                className={`w-3 h-3 rounded-full ${redisConnected ? 'bg-green-500' : 'bg-red-500'} shadow-lg`}
+                style={{
+                  boxShadow: redisConnected
+                    ? '0 0 8px rgba(34, 197, 94, 0.6), inset 0 0 4px rgba(255, 255, 255, 0.4)'
+                    : '0 0 8px rgba(239, 68, 68, 0.6), inset 0 0 4px rgba(255, 255, 255, 0.4)'
+                }}
+                title={redisConnected ? 'Redis connected' : 'Redis disconnected'}
+              />
+              <span className="text-xs text-gray-500">
+                {redisConnected ? 'Connected' : 'Disconnected'}
+              </span>
+            </div>
+          )}
         </div>
       </section>
 
