@@ -44,6 +44,69 @@ class WhatsAppService {
     Logger.info('WhatsAppService initialized');
   }
 
+  /**
+   * Retry a Discord send operation with exponential backoff
+   * @param {Function} operation - Async function that performs the Discord send
+   * @param {Object} context - Context information for logging (messageId, chatId, etc.)
+   * @param {Number} maxRetries - Maximum number of retry attempts (default: 3)
+   * @returns {Promise<Object>} - The sent Discord message
+   */
+  async retryDiscordSend(operation, context = {}, maxRetries = 3) {
+    let lastError;
+
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        if (attempt > 0) {
+          // Exponential backoff: 1s, 2s, 4s
+          const delay = Math.pow(2, attempt - 1) * 1000;
+          Logger.info(`Retrying Discord send (attempt ${attempt}/${maxRetries}) after ${delay}ms...`, context);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+
+        const result = await operation();
+
+        // Verify the result
+        if (!result || !result.id) {
+          throw new Error('Discord send returned invalid result (no message ID)');
+        }
+
+        Logger.success(`Discord message sent successfully! Message ID: ${result.id}`, {
+          attempt: attempt + 1,
+          ...context
+        });
+
+        return result;
+      } catch (error) {
+        lastError = error;
+        Logger.warning(`Discord send failed (attempt ${attempt + 1}/${maxRetries + 1}):`, {
+          error: error.message,
+          code: error.code,
+          ...context
+        });
+
+        // Don't retry permission errors - they won't succeed
+        if (error.code === 50013 || error.code === 50001 ||
+            error.message?.includes('Missing Permissions') ||
+            error.message?.includes('Missing Access')) {
+          Logger.error('Permission error detected - not retrying', context);
+          throw error;
+        }
+
+        // If this was the last attempt, throw the error
+        if (attempt === maxRetries) {
+          Logger.error(`Discord send failed after ${maxRetries + 1} attempts`, {
+            error: error.message,
+            stack: error.stack,
+            ...context
+          });
+          throw error;
+        }
+      }
+    }
+
+    throw lastError;
+  }
+
   async loadBaileys() {
     if (!this.baileys) {
       Logger.info('Loading Baileys library...');
@@ -859,7 +922,18 @@ class WhatsAppService {
       // Handle messages with content or reactions
       if (willForward) {
         Logger.debug('✅ Forwarding message to Discord via handleMessage()');
-        await this.messageHandler.handleMessage(message);
+        try {
+          await this.messageHandler.handleMessage(message);
+        } catch (error) {
+          Logger.error('❌ Failed to forward WhatsApp message to Discord:', {
+            error: error.message,
+            stack: error.stack,
+            messageId: message.key?.id,
+            chatId: message.key?.remoteJid,
+            from: message.key?.participant || message.key?.remoteJid,
+            pushName: message.pushName
+          });
+        }
       } else {
         Logger.debug('❌ Message filtered out, not forwarding to Discord');
       }
@@ -2221,8 +2295,15 @@ class WhatsAppMessageHandler {
 
           let sentMessage;
           try {
-            sentMessage = await discordChannel.send(messageOptions);
-            Logger.success(`[processMessage] Media message sent to Discord successfully! Message ID: ${sentMessage.id}`);
+            sentMessage = await this.whatsappService.retryDiscordSend(
+              () => discordChannel.send(messageOptions),
+              {
+                messageId: message.key?.id,
+                chatId: message.key?.remoteJid,
+                channelId: discordChannelId,
+                type: 'media'
+              }
+            );
           } catch (sendError) {
             // Check if it's a permissions error
             if (sendError.code === 50013 || sendError.code === 50001 || sendError.message?.includes('Missing Permissions') || sendError.message?.includes('Missing Access')) {
@@ -2332,8 +2413,15 @@ class WhatsAppMessageHandler {
 
         let sentMessage;
         try {
-          sentMessage = await discordChannel.send(messageOptions);
-          Logger.success(`[processMessage] Text message sent to Discord successfully! Message ID: ${sentMessage.id}`);
+          sentMessage = await this.whatsappService.retryDiscordSend(
+            () => discordChannel.send(messageOptions),
+            {
+              messageId: message.key?.id,
+              chatId: message.key?.remoteJid,
+              channelId: discordChannelId,
+              type: 'text'
+            }
+          );
         } catch (sendError) {
           // Check if it's a permissions error
           if (sendError.code === 50013 || sendError.code === 50001 || sendError.message?.includes('Missing Permissions') || sendError.message?.includes('Missing Access')) {
