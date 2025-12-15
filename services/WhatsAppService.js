@@ -558,6 +558,125 @@ class WhatsAppService {
   }
 
   /**
+   * Resolve @mentions in message text by replacing phone numbers with display names
+   * @param {string} messageText - The message text containing @ mentions
+   * @param {Object} contextInfo - The contextInfo from WhatsApp message
+   * @param {string} chatId - The chat ID for context
+   * @returns {Promise<string>} - Message text with resolved mentions
+   */
+  async resolveMentionsInText(messageText, contextInfo, chatId) {
+    try {
+      if (!messageText || !contextInfo || !contextInfo.mentionedJid || contextInfo.mentionedJid.length === 0) {
+        return messageText;
+      }
+
+      Logger.debug('Resolving mentions in text:', {
+        originalText: messageText,
+        mentionedJids: contextInfo.mentionedJid
+      });
+
+      let resolvedText = messageText;
+
+      // Process each mentioned JID
+      for (const jid of contextInfo.mentionedJid) {
+        try {
+          // Extract phone number from JID (format: 1234567890@s.whatsapp.net)
+          const phoneNumber = jid.split('@')[0];
+
+          // Check cache first
+          let displayName = this.contactNameCache.get(jid);
+
+          // If not in cache, try to resolve it
+          if (!displayName) {
+            // Try PostgreSQL lookup
+            if (this.postgresService) {
+              try {
+                displayName = await this.postgresService.getWhatsAppDisplayName(jid, chatId);
+                Logger.debug(`resolveMentionsInText: Found stored display name: "${displayName}" for ${jid}`);
+              } catch (error) {
+                Logger.debug(`resolveMentionsInText: Error fetching stored display name:`, error.message);
+              }
+            }
+
+            // Try Baileys store
+            if (!displayName) {
+              try {
+                const contacts = this.store && this.store.contacts;
+                if (contacts) {
+                  let c = null;
+                  if (typeof contacts.get === 'function') {
+                    c = contacts.get(jid) || null;
+                  } else if (contacts[jid]) {
+                    c = contacts[jid];
+                  } else if (typeof contacts.all === 'function') {
+                    const all = contacts.all();
+                    c = Array.isArray(all) ? all.find(x => x && (x.id === jid || x.jid === jid)) : null;
+                  }
+                  if (c) {
+                    displayName = c.name || c.notify || c.vname || c.verifiedName || null;
+                    Logger.debug(`resolveMentionsInText: Found name from Baileys store: "${displayName}"`);
+                  }
+                }
+              } catch (err) {
+                Logger.debug(`resolveMentionsInText: Error accessing Baileys store:`, err.message);
+              }
+            }
+
+            // Try group metadata for group chats
+            const isGroup = typeof chatId === 'string' && chatId.endsWith('@g.us');
+            if (!displayName && isGroup && this.sock && typeof this.sock.groupMetadata === 'function') {
+              try {
+                const meta = await this.sock.groupMetadata(chatId);
+                if (meta && Array.isArray(meta.participants)) {
+                  const p = meta.participants.find(participant => participant && participant.id === jid);
+                  if (p) {
+                    displayName = p.name || p.notify || p.vname || p.verifiedName || null;
+                    Logger.debug(`resolveMentionsInText: Found name from group metadata: "${displayName}"`);
+                  }
+                }
+              } catch (err) {
+                Logger.debug(`resolveMentionsInText: Error fetching group metadata:`, err.message);
+              }
+            }
+
+            // Cache the resolved name
+            if (displayName) {
+              this.contactNameCache.set(jid, displayName);
+              // Clear cache after 30 minutes
+              setTimeout(() => {
+                this.contactNameCache.delete(jid);
+              }, 30 * 60 * 1000);
+            }
+          }
+
+          // Replace @phoneNumber with @DisplayName in the text
+          if (displayName) {
+            // Create regex to match @phoneNumber (case-insensitive, word boundary)
+            const phoneRegex = new RegExp(`@${phoneNumber}\\b`, 'g');
+            resolvedText = resolvedText.replace(phoneRegex, `@${displayName}`);
+            Logger.debug(`Replaced @${phoneNumber} with @${displayName}`);
+          } else {
+            Logger.debug(`Could not resolve display name for ${jid}, keeping phone number`);
+          }
+        } catch (error) {
+          Logger.warning(`Error resolving mention for ${jid}:`, error.message);
+          // Continue processing other mentions
+        }
+      }
+
+      Logger.debug('Mentions resolved:', {
+        originalText: messageText,
+        resolvedText: resolvedText
+      });
+
+      return resolvedText;
+    } catch (error) {
+      Logger.warning('Error in resolveMentionsInText:', error.message);
+      return messageText; // Return original text if resolution fails
+    }
+  }
+
+  /**
    * Initialize group metadata caching system
    */
   async initializeGroupMetadataCache() {
@@ -2049,6 +2168,12 @@ class WhatsAppMessageHandler {
                          messageContent?.audioMessage?.contextInfo ||
                          messageContent?.documentMessage?.contextInfo;
 
+      // Resolve @mentions in message text (replace phone numbers with display names)
+      let resolvedBody = body;
+      if (body && contextInfo) {
+        resolvedBody = await this.whatsappService.resolveMentionsInText(body, contextInfo, chatId);
+      }
+
       if (contextInfo && contextInfo.quotedMessage && contextInfo.stanzaId) {
         isReply = true;
         replyToMessageId = contextInfo.stanzaId;
@@ -2252,19 +2377,21 @@ class WhatsAppMessageHandler {
             attachment: mediaBuffer,
             name: filename
           };
-          
-          let discordMessage = `**${senderName}** *(${timestamp})*\n📎 ${mimetype} file`;
+
+          // Build media message with optional caption
+          const mediaCaption = resolvedBody ? `\n${resolvedBody}` : '';
+          let discordMessage = `**${senderName}** *(${timestamp})*\n📎 ${mimetype} file${mediaCaption}`;
 
           // Add reply formatting if this is a reply
           if (isReply && quotedMessageInfo) {
-            discordMessage = `**${senderName}** *(${timestamp})* replying to **${quotedMessageInfo.senderName}**:\n> ${quotedMessageInfo.text}\n\n📎 ${mimetype} file`;
+            discordMessage = `**${senderName}** *(${timestamp})* replying to **${quotedMessageInfo.senderName}**:\n> ${quotedMessageInfo.text}\n\n📎 ${mimetype} file${mediaCaption}`;
 
             // Ensure Discord message doesn't exceed 2000 character limit
             if (discordMessage.length > 2000) {
-              const baseMessage = `**${senderName}** *(${timestamp})* replying to **${quotedMessageInfo.senderName}**:\n> \n\n📎 ${mimetype} file`;
+              const baseMessage = `**${senderName}** *(${timestamp})* replying to **${quotedMessageInfo.senderName}**:\n> \n\n📎 ${mimetype} file${mediaCaption}`;
               const maxQuotedLength = 2000 - baseMessage.length - 3; // -3 for "..."
               const truncatedQuoted = quotedMessageInfo.text.substring(0, maxQuotedLength) + '...';
-              discordMessage = `**${senderName}** *(${timestamp})* replying to **${quotedMessageInfo.senderName}**:\n> ${truncatedQuoted}\n\n📎 ${mimetype} file`;
+              discordMessage = `**${senderName}** *(${timestamp})* replying to **${quotedMessageInfo.senderName}**:\n> ${truncatedQuoted}\n\n📎 ${mimetype} file${mediaCaption}`;
             }
           }
 
@@ -2368,7 +2495,7 @@ class WhatsAppMessageHandler {
         }
       } else {
         // Handle text messages
-        const messageText = body || '[No text content]';
+        const messageText = resolvedBody || '[No text content]';
         let discordMessage = `**${senderName}** *(${timestamp})*\n${messageText}`;
 
         // Add reply formatting if this is a reply

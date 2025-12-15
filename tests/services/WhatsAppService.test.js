@@ -333,9 +333,152 @@ describe('WhatsAppService', () => {
                     enabled: false
                 }
             };
-            
+
             whatsappService = new WhatsAppService(invalidConfig);
             expect(whatsappService.config).toBe(invalidConfig);
+        });
+    });
+
+    describe('resolveMentionsInText', () => {
+        beforeEach(async () => {
+            whatsappService = new WhatsAppService(mockConfig);
+            await whatsappService.initialize();
+        });
+
+        test('should return original text if no contextInfo', async () => {
+            const text = 'Hello @12049225291';
+            const result = await whatsappService.resolveMentionsInText(text, null, 'chat@c.us');
+            expect(result).toBe(text);
+        });
+
+        test('should return original text if no mentionedJid in contextInfo', async () => {
+            const text = 'Hello @12049225291';
+            const contextInfo = {};
+            const result = await whatsappService.resolveMentionsInText(text, contextInfo, 'chat@c.us');
+            expect(result).toBe(text);
+        });
+
+        test('should return original text if mentionedJid is empty', async () => {
+            const text = 'Hello @12049225291';
+            const contextInfo = { mentionedJid: [] };
+            const result = await whatsappService.resolveMentionsInText(text, contextInfo, 'chat@c.us');
+            expect(result).toBe(text);
+        });
+
+        test('should replace phone number with display name from cache', async () => {
+            const phoneNumber = '12049225291';
+            const jid = `${phoneNumber}@s.whatsapp.net`;
+            const displayName = 'JohnSmith';
+
+            // Pre-populate cache
+            whatsappService.contactNameCache.set(jid, displayName);
+
+            const text = `Hello @${phoneNumber}`;
+            const contextInfo = { mentionedJid: [jid] };
+
+            const result = await whatsappService.resolveMentionsInText(text, contextInfo, 'chat@c.us');
+            expect(result).toBe(`Hello @${displayName}`);
+        });
+
+        test('should replace phone number with display name from PostgreSQL', async () => {
+            const phoneNumber = '12049225291';
+            const jid = `${phoneNumber}@s.whatsapp.net`;
+            const displayName = 'JohnSmith';
+            const chatId = 'chat@g.us';
+
+            // Mock PostgreSQL service
+            whatsappService.postgresService = {
+                getWhatsAppDisplayName: jest.fn().mockResolvedValue(displayName)
+            };
+
+            const text = `Hello @${phoneNumber}`;
+            const contextInfo = { mentionedJid: [jid] };
+
+            const result = await whatsappService.resolveMentionsInText(text, contextInfo, chatId);
+            expect(result).toBe(`Hello @${displayName}`);
+            expect(whatsappService.postgresService.getWhatsAppDisplayName).toHaveBeenCalledWith(jid, chatId);
+
+            // Verify cache was updated
+            expect(whatsappService.contactNameCache.get(jid)).toBe(displayName);
+        });
+
+        test('should replace phone number with display name from Baileys store', async () => {
+            const phoneNumber = '12049225291';
+            const jid = `${phoneNumber}@s.whatsapp.net`;
+            const displayName = 'JohnSmith';
+
+            // Mock Baileys store
+            whatsappService.store = {
+                contacts: {
+                    get: jest.fn().mockReturnValue({ name: displayName })
+                }
+            };
+
+            const text = `Hello @${phoneNumber}`;
+            const contextInfo = { mentionedJid: [jid] };
+
+            const result = await whatsappService.resolveMentionsInText(text, contextInfo, 'chat@c.us');
+            expect(result).toBe(`Hello @${displayName}`);
+            expect(whatsappService.store.contacts.get).toHaveBeenCalledWith(jid);
+        });
+
+        test('should handle multiple mentions in one message', async () => {
+            const phone1 = '12049225291';
+            const phone2 = '13105551234';
+            const jid1 = `${phone1}@s.whatsapp.net`;
+            const jid2 = `${phone2}@s.whatsapp.net`;
+            const name1 = 'JohnSmith';
+            const name2 = 'JaneDoe';
+
+            // Pre-populate cache
+            whatsappService.contactNameCache.set(jid1, name1);
+            whatsappService.contactNameCache.set(jid2, name2);
+
+            const text = `Hello @${phone1} and @${phone2}!`;
+            const contextInfo = { mentionedJid: [jid1, jid2] };
+
+            const result = await whatsappService.resolveMentionsInText(text, contextInfo, 'chat@c.us');
+            expect(result).toBe(`Hello @${name1} and @${name2}!`);
+        });
+
+        test('should handle errors gracefully and return original text', async () => {
+            const phoneNumber = '12049225291';
+            const jid = `${phoneNumber}@s.whatsapp.net`;
+
+            // Mock PostgreSQL service to throw error
+            whatsappService.postgresService = {
+                getWhatsAppDisplayName: jest.fn().mockRejectedValue(new Error('Database error'))
+            };
+
+            const text = `Hello @${phoneNumber}`;
+            const contextInfo = { mentionedJid: [jid] };
+
+            const result = await whatsappService.resolveMentionsInText(text, contextInfo, 'chat@c.us');
+            // Should still return text, but without the resolved name
+            expect(result).toBe(text);
+        });
+
+        test('should keep phone number if no display name found', async () => {
+            const phoneNumber = '12049225291';
+            const jid = `${phoneNumber}@s.whatsapp.net`;
+
+            // Mock empty PostgreSQL response
+            whatsappService.postgresService = {
+                getWhatsAppDisplayName: jest.fn().mockResolvedValue(null)
+            };
+
+            // Mock empty Baileys store
+            whatsappService.store = {
+                contacts: {
+                    get: jest.fn().mockReturnValue(null)
+                }
+            };
+
+            const text = `Hello @${phoneNumber}`;
+            const contextInfo = { mentionedJid: [jid] };
+
+            const result = await whatsappService.resolveMentionsInText(text, contextInfo, 'chat@c.us');
+            expect(result).toBe(text); // Phone number stays as-is
         });
     });
 });
